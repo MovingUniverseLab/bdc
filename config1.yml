@@ -24,7 +24,7 @@ n1:
   dec_field     : 12.17453385
   # radius        : 20   #arcseconds
   minmag        : 15.4  #dimmest mag for cut
-  single_fit    : True  #run Mosaic2Ref for each image individually
+  single_fit    : True  #run Mosaic2Ref for each image individually. Only works for true, delete?
   rad_tolerance : [0.4, 0.4, 0.2]
   dont_trim     : ['ci200804_a014004_flip_0.8_stf.lis', 'ci200804_a026009_flip_0.8_stf.lis']
   slice         : [0,None]
