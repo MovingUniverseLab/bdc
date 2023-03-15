@@ -48,6 +48,9 @@ run from the command line with an input script (config file), like maos. And an 
 Input script will contain links to nights.
 
 
+command looks like: python bdc_main.py config1.yml
+
+
 """
 import argparse
 import yaml
@@ -78,70 +81,64 @@ with open(args.config, "r") as ymlfile:
 
 
 def main():
-	hubbleData = fetch_hubble(config[night]['hubble_file'])
+	if config['instrument'] == 'OSIRIS'
+		osiris = instruments.OSIRIS()
+	else:
+		print('Can\'t handle instrument {}, only OSIRIS'.format(config['instrument']))	
+	
+	refTable_current = {}	#holds most recent refTable for each night #this is the reference table that keeps getting updated by the reference section.
 	if config['generate_reference_frame']:
-		# median_residuals_b = []
-		# mean_residuals_b = []
-		# mean_residuals_b_squared = []
-		# min_residuals_b = []
-		# max_residuals_b = []
-		# num_residuals_b = []
-		# median_residuals_b_radec = []
-		# mean_residuals_a = []
-		refTable_current = {}	#holds most recent refTable for each night
-		#this is the reference table that keeps getting updated by the reference section.
-		refTable_current_filename = '{}refTable_current_{}'.format(resultDir,solution_year) 
-		#make these into a dictionary of lists.
-		if config['instrument'] == 'OSIRIS'
-			osiris = instruments.OSIRIS()
 		for ref_iteration in range(config['ref_iterations']):
 			print('\n \n Ref Iteration {} \n'.format(ref_iteration))
 			distortion_model = distortion_section(refTable_current)
-			#section B
 			new_refTable = reference_section(refTable_current,distortion_model)
 			refTable_current = new_refTable
-			#section A
-		#final result here.
 	else:
 		distortion_model = distortion_section(refTable_current)
-		#final result here.
 		#outputs are printed to files.
 
+	return distortion_model
 
-def distortion_section(refTable_current, initial_distortion_correction = None):
+def distortion_section(refTable_current): #, initial_distortion_correction = None):
 	# --------------------------------------- Section B ---------------------------------------------------------------
 	#fp_iteration starts here?
 	#get the distortion solution, correct the data, pass that back into the fitter.
 	#Do I want to save all fp_iterations, or just save the final fit? I think I want all iterations to be saved. So I can quickly re-run and plot them.
 
-	current_distortion_correction = initial_distortion_correction
-	tab1_initial = {'n1':[],'n2':[],'n3':[],'n4':[],'n5':[]} #is regenerated each ref_iteration
-	# do I need the empty lists here in order to append to them?
+	# current_distortion_correction = initial_distortion_correction
+	current_distortion_correction = None
+	# tab1_initial = {'n1':[],'n2':[],'n3':[],'n4':[],'n5':[]} #is regenerated each ref_iteration
+	tab1_initial = {} #we only want to use the match table from the first four-parameter iteration
+	for night in obs_nights:
+		tab1_initial[night]=[]
 
+	# do I need the empty lists here in order to append to them?
 	#if I am loading dist files then this can break if a set of fp_iterations was incomplete - it won't run the first iteration to generate it. Need to save as a file?
 
 	for fp_iteration in fp_iterations:
 
 		matched_star_table_name = '{}dist_measures_{}_{}_{}.txt'.format(resultDir,solution_year,ref_iteration,fp_iteration)
-		matched_star_table = {}
+		matched_star_table = {}   #matched star lists from each image are all appended to this dictionary. Should be an astropy table? Lots of appending lists. Convert later?
 		plate_scale_and_rotations = {}
 
-		# if we want to generate a new matched_star_table:
+		#if config['generate_new_fp']==True, we generate a new table of matched stars.
+		#If False, we load the previouly saved one.
+
 		if config['generate_new_fp']:  
 			obs_nights = [night for night in config]
 			#-------------------------Night loop starts here-------------------------------
 			for night in obs_nights:
-				osiris_filenames = get_osiris_files(config[night]['stackDir'])
-				sl2 = slice(config[night]['slice'][0],config[night]['slice'][1])
-				osiris_filenames = osiris_filenames[sl2]
+				hubbleData = fetch_hubble(config[night]['hubble_file'])
+				osiris_filenames = get_osiris_files(config[night]['stackDir'],config[night]['slice'])
 				if night not in refTable_current.keys():  #if we have not generated a new reference frame, load the starting one.
 					if config['use_flystar_velocity']:
 						refTable_H = prepare_hubble_for_flystar(hubbleData,config[night]['ra_field'],config[night]['dec_field'],config[night]['target'])
 					else:
-						starlist0 = load_osiris_file(config[night]['stackDir'] ,osiris_filenames[0])
+						starlist0 = load_osiris_file(config[night]['stackDir'] ,osiris_filenames[0]) #load 1 file to get the epoch.
 						hubbleData_p = project_pos(hubbleData,starlist0,'hubble_'+config[night]['target'])
 						refTable_H = prepare_hubble_for_flystar(hubbleData_p,config[night]['ra_field'],config[night]['dec_field'],config[night]['target'])
-					refTable_current[night] = refTable_H.filled()
+					refTable_current[night] = refTable_H.filled() #is this necessary?
+					refTable_current_filename = '{}refTable_current_{}_{}'.format(resultDir,night,fp_iteration) 
 					with open(refTable_current_filename, 'wb') as temp:
 						pickle.dump(refTable_current, temp)
 
@@ -151,9 +148,18 @@ def distortion_section(refTable_current, initial_distortion_correction = None):
 						continue
 					starlist, refTable_d, PA = load_and_prepare_data(filename,refTable_current)
 					try:
-						transformation_guess = load_transformation_guess()
+						# transformation_guess = load_transformation_guess()
+						transformation_guess_file = '{}tform_{}_{}_{}.p'.format(tformDir,ref_iteration,fp_iteration,filename) #this needs to be reworked for the PCU
+						if os.path.exists(transformation_guess_file):
+							print('Loading transform guess')
+							with open(transformation_guess_file, 'rb') as trans_file:
+								trans_list = pickle.load(trans_file) 	
+						else:
+							# trans_list = last_good_transform
+							print('Not loading transform guess')
+							trans_list = None							
 						starlist_corrected = starlist[:]
-						# if current_distortion_correction is not None:
+						# if current_distortion_correction is not None:    #either this check, or the fp_iteration check.
 						if fp_iteration > 0:
 							xt, yt = current_distortion_correction.evaluate(starlist_corrected['x'],starlist_corrected['y'])
 							starlist_corrected['x'] = xt 
@@ -188,14 +194,14 @@ def distortion_section(refTable_current, initial_distortion_correction = None):
 							j = 0
 						else:
 							j=i  # i=osiris index, j=gaia index
-
+							print('Only set up for single_fit mode')
 
 						ref_idx = np.where(tab1['ref_orig'] == True)[j]
 						if len(ref_idx) <= 10:
 							print(i, filename, 'Only', len(ref_idx),'matched, skipping')
 							errorlist.append(filename[:-4])
 							return
-						with open(tform_file_1, 'wb') as temp:
+						with open(transformation_guess_file, 'wb') as temp:
 							pickle.dump(tform, temp)
 
 						print(i, filename, len(refTable_d), 'Reference stars,', len(starlist_corrected), 'OSIRIS stars,', len(ref_idx), 'matches')
@@ -208,10 +214,6 @@ def distortion_section(refTable_current, initial_distortion_correction = None):
 						plate_scale_and_rotations.setdefault('Scale',[]).append(scale)
 						plate_scale_and_rotations.setdefault('Rotation',[]).append(math.degrees(theta))
 						plate_scale_and_rotations.setdefault('PA',[]).append(PA)
-						# used_files.append(filename)
-						# scales.append(scale)
-						# rotations.append(math.degrees(theta))
-						# PAs.append(PA)
 
 						append_to_matched_star_table(matched_star_table,tab1,tform,tform_inv)
 
@@ -238,37 +240,18 @@ def distortion_section(refTable_current, initial_distortion_correction = None):
 				print('Failed for', len(errorlist), 'files:')
 				print(errorlist)
 
-				print('Mean scale =', np.mean(scales))
-				# offset = np.array(rotations)-np.array(PAs)
 				plate_scale_and_rotations['Difference'] = plate_scale_and_rotations['Rotation'] - plate_scale_and_rotations['PA']
-				print('Mean rotation offset =', np.mean(plate_scale_and_rotations['Difference']))
-				# transform_table = Table([used_files, scales, rotations, PAs, offset], names = ('File','Scale', 'Rotation','PA','Difference'))
 				transform_table = Table(plate_scale_and_rotations)
 				ascii.write(transform_table,'{}t_params_{}_{}.txt'.format(resultDir,ref_iteration,night),format='fixed_width', overwrite=True)
-			
-				# x_O = np.array(x_O)
-				# y_O = np.array(y_O)
-				# x_G = np.array(x_G)
-				# y_G = np.array(y_G)
-				# weights = np.array(weights)
-				# idnums = np.array(idnums)
-				# starlist_num = np.array(starlist_num)
-				# night_col = np.array(night_col)
-				# used_in_trans_1 = np.array(used_in_trans_1)
-
-				# output_table = Table([x_O,y_O,x_G,y_G,weights,idnums,xe_O,ye_O,xe_G,ye_G,Ra_O,Dec_O,Ra_G,Dec_G, night_col,starlist_num,used_in_trans_1], names = ('x_OSIRIS','y_OSIRIS','x_REF','y_REF','Weight','REF_ID','xe_OSIRIS','ye_OSIRIS','xe_REF','ye_REF','Ra_OSIRIS','Dec_OSIRIS','Ra_REF','Dec_REF','Night','Frame','UiT'),)
+				# print('Mean scale =', np.mean(scales))
+				# print('Mean rotation offset =', np.mean(plate_scale_and_rotations['Difference']))
+				
 				output_table = Table(matched_star_table) #elements are lists, not numpy arrays. Should be fine?
 				ascii.write(output_table,matched_star_table,format='fixed_width', overwrite=True)
-
-				# distortion_data = output_table
-				# distortion_data = ascii.read(matched_star_table,format='fixed_width')
-				#I generate this for each 4p loop and overwrite it.
-				#always pass a first one in.
 	
 		else:
 			print('b: Loading fit {}'.format(matched_star_table_name))
 		
-		# Then always load from file.
 		distortion_data = ascii.read(matched_star_table_name,format='fixed_width')
 
 		# use the parameters in output table to calculate a new distortion solution (check fit_legendre script)0
@@ -281,24 +264,6 @@ def distortion_section(refTable_current, initial_distortion_correction = None):
 			distortion_data = distortion_data[used_in_trans_B]
 			#I can probably compress this. Make the second line a list not a tuple?
 
-
-		# x = distortion_data['x_IM'].data
-		# y = distortion_data['y_IM'].data
-		# xref = distortion_data['x_REF'].data
-		# yref = distortion_data['y_REF'].data
-		# weights = distortion_data['Weight'].data
-		# gaia_id = distortion_data['REF_ID'].data
-		# xe = distortion_data['xe_IM'].data
-		# ye = distortion_data['ye_IM'].data
-		# xeref = distortion_data['xe_REF'].data
-		# yeref = distortion_data['ye_REF'].data
-		# frame = distortion_data['Frame_num'].data
-		# night_c = distortion_data['Night'].data
-		# ra = distortion_data['RA_IM'].data
-		# dec = distortion_data['Dec_IM'].data
-		# raref  = distortion_data['RA_REF'].data
-		# decref  = distortion_data['Dec_REF'].data		
-
 		# flystar rejects outliers and sets their weights to zero, which sets their errors to inf. So we put them back here.
 		ind_r = np.where(distortion_data['Weight'] == 0.0)[0] #index of stars rejected with outlier_rejection, have their weights set to 0.0
 		distortion_data['Weight'][ind_r] = 1/np.sqrt((distortion_data['xe_IM'][ind_r]*0.01)**2 + (distortion_data['ye_IM'][ind_r]*0.01)**2 + distortion_data['xe_REF'][ind_r]**2 + distortion_data['ye_REF'][ind_r]**2)
@@ -307,9 +272,8 @@ def distortion_section(refTable_current, initial_distortion_correction = None):
 		#maybe don't declare all these variables, just use the table, and update the weights in place.
 
 		outliers, bad_names, m_distances = find_outliers(distortion_data['x_IM'],distortion_data['y_IM'],distortion_data['x_REF'],distortion_data['y_REF'],distortion_data['REF_ID'])
-		print('Mean of mahalanobis distances:', np.mean(m_distances))
-		print('Standard deviation of mahalanobis distances:', np.std(m_distances))
 		include = ~outliers 
+		print('Mahalanobis distance. Mean: {}, STD: {}'.format(np.mean(m_distances),np.std(m_distances)))
 
 		print('Fitting Legendre Polynomial')
 		legendre_transformation = transforms.LegTransform.derive_transform(distortion_data['x_IM'][include], 
@@ -324,19 +288,18 @@ def distortion_section(refTable_current, initial_distortion_correction = None):
 
 		distortion_plot_print_save(distortion_data,current_distortion_correction,fp_iteration)
 
-
-
 	return current_distortion_correction #returns the final distortion correction
 
 
 
 
-def reference_section():
+def reference_section(refTable_current,distortion_model):
 		# --------------------------------------- Section A ---------------------------------------------------------------
 
 		if len(refTable_current) == 0:
 			with open(refTable_current_filename, 'rb') as temp:
-				refTable_current = pickle.load(temp) 
+				refTable_current = pickle.load(temp)   #pretty sure I don't need this bit, I'm passing refTable_current
+
 
 		#------------------------Night loop 1 starts here---------------------------
 
@@ -369,100 +332,23 @@ def reference_section():
 				# sl = slice(34,38)
 				show_plots = False
 
-			elif night == 'n2':
-				target = 'm92'
-				nightDir = '/u/mfreeman/work/d/n2/'
-				cleanDir = nightDir + 'clean/m92_kp_tdOpen/'
-				hubble_file = '/g/lu/data/m92/hst_ref/NGC6341cp.pm' #'idk901xpq_flt.xymrduvqpk'
-				targetID = 1360405503461790848  #gaia ID of target star. Ra and Dec used in prepare_gaia_for_flystar()
-				ra_field = 259.285096306648     #approximate centre of FoV, selects gaia stars in radius
-				dec_field = 43.13751895071527
-				radius = 20   #arcseconds
-				minmag = 15.4  #dimmest mag for cut
-				rad_tolerance = [0.4, 0.4, 0.2]
-				mag_tolerance = [2, 2, 2]
-				mag_limits = None
-				single_fit = True  #run Mosaic2Ref for each image individually
-				bad_files = []
-				dont_trim = []
-				sl = slice(0,None)
-				# sl = slice(151,None)
-				show_plots = False    
-
-			elif night == 'n3':
-				target = 'm92'
-				nightDir = '/u/mfreeman/work/d/n3/'
-				cleanDir = nightDir + 'clean/m92_kp_tdOpen/'
-				hubble_file = '/g/lu/data/m92/hst_ref/NGC6341cp.pm' #'idk901xpq_flt.xymrduvqpk'
-				targetID = 1360405503461790848  #gaia ID of target star. Ra and Dec used in prepare_gaia_for_flystar()
-				ra_field = 259.285096306648     #approximate centre of FoV, selects gaia stars in radius
-				dec_field = 43.13751895071527
-				radius = 20   #arcseconds
-				minmag = 15.4  #dimmest mag for cut
-				rad_tolerance = [0.4, 0.4, 0.2]
-				mag_tolerance = [2, 2, 2]
-				mag_limits = None
-				single_fit = True  #run Mosaic2Ref for each image individually
-				bad_files = []
-				dont_trim = []
-				sl = slice(0,None)
-				# sl = slice(151,None)
-				show_plots = False    
-
-			elif night == 'n4':
-				target = 'm92'
-				nightDir = '/u/mfreeman/work/d/n4/'
-				cleanDir = nightDir + 'clean/m92_kp_tdOpen/'
-				hubble_file = '/g/lu/data/m92/hst_ref/NGC6341cp.pm' #'idk901xpq_flt.xymrduvqpk'
-				targetID = 1360405503461790848  #gaia ID of target star. Ra and Dec used in prepare_gaia_for_flystar()
-				ra_field = 259.285096306648     #approximate centre of FoV, selects gaia stars in radius
-				dec_field = 43.13751895071527
-				radius = 20   #arcseconds
-				minmag = 15.4  #dimmest mag for cut
-				rad_tolerance = [0.4, 0.4, 0.2]
-				mag_tolerance = [2, 2, 2]
-				mag_limits = None
-				single_fit = True  #run Mosaic2Ref for each image individually
-				bad_files = ['ci200814_a032008_flip_0.8_stf.lis']
-				dont_trim = []
-				sl = slice(0,None)
-				# sl = slice(151,None)
-				show_plots = False  
-
-			elif night == 'n5':
-				target = 'm15'
-				nightDir = '/u/mfreeman/work/d/n5/'
-				cleanDir = nightDir + 'clean/m15_kn3_tdhBand/'
-				hubble_file = '/g/lu/data/m15/hst_ref/NGC7078cb.pm' #'icbe05m9q_flt.xymrduvqpk'     #there are other files too?
-				targetID = 1745948328028761984  #gaia ID of target star. Ra and Dec used in prepare_gaia_for_flystar()
-				ra_field = 322.4912419147502  #approximate centre of FoV, selects gaia stars in radius
-				dec_field = 12.164721331771977	
-				radius = 20   #arcseconds
-				minmag = 15.4  #dimmest starlist mag for cut
-				rad_tolerance = [0.4, 0.4, 0.2]
-				mag_tolerance = [2, 2, 2]
-				mag_limits = [6,16]
-				single_fit = True  #run Mosaic2Ref for each image individually
-				bad_files = ['ci211024_a011009_flip_0.8_stf.lis','ci211024_a012010_flip_0.8_stf.lis','ci211024_a020012_flip_0.8_stf.lis']
-				dont_trim = []
-				sl = slice(0,None)
-				# sl = slice(79,None)
-				show_plots = False 
 			else:
 				print('No night selected')
 				quit()
 
+				#those all become config[night]['target'] etc
+				#the distortion section function has examples.
 
-			plotDir_n = plotDir + night + '/'
 
-			osiris_filenames = get_osiris_files(config[night]['stackDir'])
 
-			sl2 = slice(0,None) 
-			osiris_filenames = osiris_filenames[sl2]
-			print(osiris_filenames)
+			plotDir_n = plotDir + night + '/'   #is this in config?
+
+			osiris_filenames = get_osiris_files(config[night]['stackDir'],config[night]['slice'])
 			print(len(osiris_filenames), 'OSIRIS images')
 
 
+			#perhaps make this next section possibly generate a new reference frame, then always load from file. For consistency.
+			#make a function to choose the ref file? It's just checking if there's a previous one, can probably do one step.
 
 
 			# combined_ref_filename = resultDir + 'combined_ref_table_' + str(ref_iteration) + '.txt'
@@ -1114,10 +1000,12 @@ def prepare_hubble_for_flystar(hubble, ra, dec, target, targets_dict=None, match
 
 	return hubble_new
 
-def get_osiris_files(starfindDir):
+def get_osiris_files(starfindDir,file_slice):
 	filelist = os.listdir(starfindDir)
 	starfindFiles = fnmatch.filter(filelist,'ci*.lis')
 	starfindFiles.sort()
+	sl = slice(file_slice[0],file_slice[1])
+	starfindFiles = starfindFiles[sl]	
 	return starfindFiles
 
 def project_pos(refData_o, starlist,instrument):
@@ -1189,7 +1077,9 @@ def load_transformation_guess():
 	return trans_list
 
 
-def load_and_prepare_data(filename):
+def load_and_prepare_data(filename,refTable_current):
+	#loads an OSIRIS file, does and edge cut. 
+	#Takes a reference list, trims stars outside the OSIRIS file, adds DAR. This step needs to be changed for the pinhole mask.
 	starlist = load_osiris_file(config[night]['stackDir'] ,filename)
 	fitsfile = config[night]['cleanDir'] + filename[:-12] + '.fits'
 	PA = get_PA(fitsfile)
@@ -1207,14 +1097,13 @@ def load_and_prepare_data(filename):
 	# 	starlist['x'] = xt 
 	# 	starlist['y'] = yt 
 	refTable_t = trim_gaia(refTable_current[night],filename,PA)    
-	refTable_tf = refTable_t.filled()		#unmask, required for quiver plots
-
+	refTable_tf = refTable_t.filled()		#unmask, required for quiver plots. Can this be removed?
 	refTable_d = dar.applyDAR(fitsfile, refTable_tf, plot=False, instrument=osiris, plotdir=plotDir_n + 'dar_a/'+ str(ref_iteration) + '/')
 	return starlist, refTable_d, PA
 
 
 def append_to_matched_star_table(matched_star_table,tab1,ref_idx,tform,tform_inv);
-	j=0
+	j=0 #?? why is this here?
 
 	# ids1 = np.where(tab1['name_in_list'] == 's1')[0]
 	Ox = tab1['x_orig'][ref_idx,j]
@@ -1245,7 +1134,7 @@ def append_to_matched_star_table(matched_star_table,tab1,ref_idx,tform,tform_inv
 	# matched_star_table['Ra_G'].extend(GRa)
 	# matched_star_table['Dec_G'].extend(GDec)
 
-	# setdefault: if the key exists, return it. Otherwise, set the key to [] and return in. Either case can then be extended.
+	# setdefault: if the key exists, return the value. Otherwise, create the key, set value to [], then return it. Either case can then be extended.
 	matched_star_table.setdefault('x_IM',[]).extend(Ox) 		#image star x position (pixels)
 	matched_star_table.setdefault('y_IM',[]).extend(Oy)
 	matched_star_table.setdefault('x_REF',[]).extend(Gx) 		#reference star x position (pixels) (calculated using inverse transformation)
@@ -1273,7 +1162,11 @@ def append_to_matched_star_table(matched_star_table,tab1,ref_idx,tform,tform_inv
 	return
 
 
-def distortion_plot_print_save(distortion_data,legendre_transformation):
+def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iteration):
+		#this function takes a calculated distortion solution and generates various plots and outputs.
+		#most importantly, it saves the Legendre coefficients in a text file.
+
+		#it needs to be passed info like the four-parameter iteration, reference iteration, year?
 
 		x = distortion_data['x_IM'].data
 		y = distortion_data['y_IM'].data
@@ -1569,7 +1462,12 @@ def distortion_plot_print_save(distortion_data,legendre_transformation):
 	# plt.close('all')
 	# quit()
 
-
+def load_osiris_file(starfindDir,filename):
+	#Loads a starlist file, converts it to a StarList object.
+	with open (starfindDir + filename) as starfindFile:
+			starfindTable = starfindFile.read().splitlines()
+	osirisStarList = starlists.StarList.from_lis_file(starfindTable, error=False)
+	return osirisStarList
 
 def stack_frames():
 	pass

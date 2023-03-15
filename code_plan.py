@@ -56,6 +56,27 @@ def do_distortion():  #generate a distortion solution given a reference frame an
 	return updated_distortion_correction.
 
 
+def do_reference(refTable_current,distortion_model):
+	for night in nights:
+		lists_of_starlists = []
+		get_osiris_files()
+		for frame in OSIRIS_files:
+			mag cut
+			edge cut
+			apply_distortion_model()
+			remove_DAR()
+			lists_of_starlists.append()
+		msc = align.MosaicToRef(refTable_current[night],list_of_starlists)
+		msc.fit()
+		save msc.refTable
+		load some refTable values
+		manually average star positions 
+		trim not_used_in_trans?
+		match names with intersect1d()
+		update refTable_current[night]
+
+	return refTable_current
+
 def prepare_data(night)
 	load data?
 	project_positions? 				#could make these bits into prepare_data()
