@@ -1,9 +1,10 @@
 nights    : ['n1','n2']
 instrument   : 'OSIRSIS'
-ref_instrument : 'Hubble'
-fp_iterations  : 5
+ref_instrument : 'Hubble'  #'PCU' or 'Hubble' 
+legendre_order : 5
 generate_new_fp : True
 generate_reference_frame : False
+fp_iterations  : 5
 ref_iterations : 8
 centred         : True
 use_flystar_velocity  : False
@@ -18,7 +19,7 @@ n1:
   bad_files     : ['ci200804_a022007_flip_0.8_stf.lis','ci200804_a026012_flip_0.8_stf.lis','ci200804_a027003_flip_0.8_stf.lis',]
   mag_limits    : [6,16]
   mag_tolerance : [2, 2, 2]
-  hubble_file   : '/g/lu/data/m15/hst_ref/NGC7078cb.pm' #'je0o61lzq_flt.xymrduvqpk'
+  reference_file   : '/g/lu/data/m15/hst_ref/NGC7078cb.pm' #'je0o61lzq_flt.xymrduvqpk'
   targetID      : 1745948323734090368   #gaia ID of target star. Ra and Dec used in prepare_gaia_for_flystar()
   ra_field      : 322.48999069
   dec_field     : 12.17453385
@@ -37,7 +38,7 @@ n2:
   bad_files     : []
   mag_limits    : [6,16]
   mag_tolerance : [2, 2, 2]
-  hubble_file   : '/g/lu/data/m92/hst_ref/NGC6341cp.pm' #'idk901xpq_flt.xymrduvqpk'
+  reference_file   : '/g/lu/data/m92/hst_ref/NGC6341cp.pm' #'idk901xpq_flt.xymrduvqpk'
   targetID      : 1360405503461790848  #gaia ID of target star. Ra and Dec used in prepare_gaia_for_flystar()
   ra_field      : 259.285096306648     #approximate centre of FoV, selects gaia stars in radius
   dec_field     : 43.13751895071527
