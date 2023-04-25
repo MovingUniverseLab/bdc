@@ -7,6 +7,7 @@ import numpy as np
 import math
 import matplotlib.pyplot as plt
 from astropy.table import Table
+import matplotlib.image as mpimg
 
 grid_spacing = 0.5  #in mm
 
@@ -26,9 +27,17 @@ def main():
 	y_array = []
 	id_array = []
 	counter=1
+	points_to_remove = [[3.25, 21.75], [-3.25, 21.75], [3.25, -21.75], [-3.25, -21.75],
+						[21.75, 3.25], [-21.75, 3.25], [21.75, -3.25], [-21.75, -3.25],
+						[14.25,16.75], [-14.25,16.75], [14.25,-16.75], [-14.25,-16.75], 
+						[16.75,14.25], [-16.75,14.25], [16.75,-14.25], [-16.75,-14.25], 
+						#[-15.75,-15.25], #this point is missing on the reference pdf, but I don't know about the actual mask
+						]
 	for x in grid_steps:
 		for y in grid_steps:
-			if ((abs(x) == 3.25) & (abs(y) == 21.75)) or ((abs(y) == 3.25) & (abs(x) == 21.75)):
+			# if ((abs(x) == 3.25) & (abs(y) == 21.75)) or ((abs(y) == 3.25) & (abs(x) == 21.75)):
+			if [x,y] in points_to_remove:
+				print('Removing', [x,y])
 				#deleting some points that aren't in the pinhole mask reference.
 				continue
 			if np.hypot(x,y)<=grid_radius:
@@ -53,10 +62,18 @@ def main():
 	plt.figure(figsize=(6,6))
 	plt.scatter(x_array,y_array,marker='.')
 	plt.axis('equal')
+	# plt.show()
+
+
+
+	x_array = np.asarray(x_array)*45 + 1250
+	y_array = np.asarray(y_array)*45 + 1240
+
+	plt.figure(figsize=(6,6))
+	img = mpimg.imread('Screenshot 2023-04-25 at 3.34.00 PM.png')
+	plt.imshow(img)
+	plt.scatter(x_array,y_array,s=10,c='r',marker='o')
+	plt.axis('equal')
 	plt.show()
-
-
-
-
 
 main()

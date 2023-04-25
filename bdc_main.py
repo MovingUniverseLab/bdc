@@ -63,7 +63,7 @@ The Hubble list x_0 is in the rectified Cartesian system wrt to the adopted cent
 So that's why I don't need to change anything. I could probably just leave hubble as it is.
 That will be inconsistent with my previous runs.
 New plan:
-Don't need to pass in Ra, Dec, or Target name. prepare_hubble_for_flystar() doesn't need to translate hubble.
+Don't need to pass in Ra, Dec, or Target name. prepare_ref_for_flystar() doesn't need to translate hubble.
 need prepare_PCU_for_flystar, which does something similar.
 or just make the PCU list in the correct format anyway? It won't be in RA and Dec, and trying to convert it may be incorrect.
 Do I need to make up the columns too? Magnitudes are a bit meaningless.
@@ -173,14 +173,14 @@ def distortion_section(refTable_current):
 			#-------------------------Night loop starts here-------------------------------
 			for night in obs_nights:
 				hubbleData = fetch_hubble(config[night]['reference_file'])
-				osiris_filenames = get_osiris_files(config[night]['stackDir'],config[night]['slice'])
+				osiris_filenames = get_image_filenames(config[night]['starlist_dir'],config[night]['slice'])
 				if night not in refTable_current.keys():  #if we have not generated a new reference frame, load the starting one.
-					if config['use_flystar_velocity']:
-						refTable_H = prepare_hubble_for_flystar(hubbleData,config[night]['ra_field'],config[night]['dec_field'],config[night]['target'])
+					if config['use_flystar_velocity']:   #if True, use flystar to project positions. If False, manually project positions.
+						refTable_H = prepare_ref_for_flystar(hubbleData,config[night]['target_RA'],config[night]['target_DEC'],config[night]['target'],config[night]['ref_instrument'])
 					else:
-						starlist0 = load_osiris_file(config[night]['stackDir'] ,osiris_filenames[0]) #load 1 file to get the epoch.
+						starlist0 = load_osiris_file(config[night]['starlist_dir'] ,osiris_filenames[0]) #load 1 file to get the epoch.
 						hubbleData_p = project_pos(hubbleData,starlist0,'hubble_'+config[night]['target'])
-						refTable_H = prepare_hubble_for_flystar(hubbleData_p,config[night]['ra_field'],config[night]['dec_field'],config[night]['target'])
+						refTable_H = prepare_ref_for_flystar(hubbleData_p,config[night]['target_RA'],config[night]['target_DEC'],config[night]['target'],config[night]['ref_instrument'])
 					refTable_current[night] = refTable_H.filled() #is this necessary?
 					with open(refTable_current_filename, 'wb') as temp:
 						pickle.dump(refTable_current, temp)
@@ -190,7 +190,7 @@ def distortion_section(refTable_current):
 						print('{} {} flagged as bad, skipping'.format(i,filename))
 						continue
 
-					starlist = load_osiris_file(config[night]['stackDir'] ,filename)
+					starlist = load_osiris_file(config[night]['starlist_dir'] ,filename)
 					fitsfile = config[night]['cleanDir'] + filename[:-12] + '.fits'
 					PA = get_PA(fitsfile)
 					# starlist = brightest_n(starlist,170)
@@ -398,7 +398,7 @@ def reference_section(refTable_current,distortion_model):
 
 			plotDir_n = plotDir + night + '/'   #Need to sort out which plots I actually need.
 
-			osiris_filenames = get_osiris_files(config[night]['stackDir'],config[night]['slice'])
+			osiris_filenames = get_image_filenames(config[night]['starlist_dir'],config[night]['slice'])
 			print(len(osiris_filenames), 'OSIRIS images')
 
 			#perhaps make this next section possibly generate a new reference frame, then always load from file. For consistency.
@@ -420,7 +420,7 @@ def reference_section(refTable_current,distortion_model):
 					
 					fitsfile = config[night]['cleanDir'] + filename[:-12] + '.fits'
 					PA = get_PA(fitsfile)
-					starlist = load_osiris_file(config[night]['config[night]['stackDir']'] ,filename)
+					starlist = load_osiris_file(config[night]['config[night]['starlist_dir']'] ,filename)
 					# starlist = brightest_n(starlist,170)
 					starlist = mag_cut(starlist,0,minmag)
 					if not filename in config[night]['dont_trim']:
@@ -684,15 +684,20 @@ def fetch_hubble(filename):				#loads hubble data from hst1pass
 	print('Loading', filename)
 	# hubble_table = ascii.read(nightDir + hst1pass_file,format='commented_header',guess=False,delimiter='\s',comment='#',header_start=166,data_start=168,) #lines start at 0
 	# hubble_table = ascii.read(nightDir + hst1pass_file,format='basic',names=['x','y','m','r','d','u','v','q','p','k'])
-	column_names = ['r', 'x_0', 'y_0', 'pmx', 'pmy', '1sig_pmx', '1sig_pmy', 'x_M', 'y_M', 'Delta_x', 'Delta_y', 
-					'1sig_pmx_mod', '1sig_pmy_mod', 'm_F606W', 'm_F814W', 'rms_F606W', 'rms_F814W', 'qfit_F606W', 'qfit_F814W', 
-					'red_chi2_pmx', 'red_chi2_pmy', '1sig_intrcp_pmx', '1sig_intrcp_pmy', 'time_bsln', '1sig_intrcp_pmx_mod', '1sig_intrcp_pmy_mod', 
-					'pm_ref', 'N_found', 'N_used', 'ID', 'delta_pmx', 'delta_pmy']
+	if instrument == 'Hubble'
+		column_names = ['r', 'x_0', 'y_0', 'pmx', 'pmy', '1sig_pmx', '1sig_pmy', 'x_M', 'y_M', 'Delta_x', 'Delta_y', 
+						'1sig_pmx_mod', '1sig_pmy_mod', 'm_F606W', 'm_F814W', 'rms_F606W', 'rms_F814W', 'qfit_F606W', 'qfit_F814W', 
+						'red_chi2_pmx', 'red_chi2_pmy', '1sig_intrcp_pmx', '1sig_intrcp_pmy', 'time_bsln', '1sig_intrcp_pmx_mod', '1sig_intrcp_pmy_mod', 
+						'pm_ref', 'N_found', 'N_used', 'ID', 'delta_pmx', 'delta_pmy']
+		hubble_table = ascii.read(filename,format='basic',names=column_names)
+	
+	if instrument == 'PCU'
+		hubble_table = ascii.read(filename,format='fixed_width')
 
-	hubble_table = ascii.read(filename,format='basic',names=column_names)
 	return hubble_table
 
-def prepare_hubble_for_flystar(hubble, ra, dec, target, targets_dict=None, match_dr_max=0.2):   #copied from prepare_gaia_for_flystar(). #year=2006 by default?
+def prepare_ref_for_flystar(ref, ra, dec, target, instrument, targets_dict=None, match_dr_max=0.2):   
+	#copied from prepare_gaia_for_flystar(). #year=2006 by default?
 	"""
 	Take a Gaia table (from astroquery) and produce a new table with a tangential projection
 	and shift such that the origin is centered on the target of interest. 
@@ -706,108 +711,147 @@ def prepare_hubble_for_flystar(hubble, ra, dec, target, targets_dict=None, match
 	#  in 2011) (RA, Dec)_J000.0 = (21:29:58.33, +12:10:01.20) 
 	#  Cluster's center on the master frame: (4989.28, 5017.50) [pix]
 	# ra and dec are in decimal degrees. Shift so that they are at zero 
-	if target == 'm15':
-		cluster_centre = SkyCoord('21:29:58.33', '12:10:01.20', unit=(u.hourangle, u.deg), frame='icrs')     #hard coded m15
-		ra_centre = cluster_centre.ra.degree     # in decimal degrees
-		dec_centre = cluster_centre.dec.degree   # in decimal degrees
-		ra_diff = (ra_centre-ra)*3600     #degrees to arcseconds
-		dec_diff = (dec_centre-dec)*3600   
+	
+	if instrument == 'PCU':
 
-		manual_ra =  -(13.19) * osiris_scale    #manual offset to align images.
-		manual_dec = -(15.15) * osiris_scale
-		ra_diff += manual_ra
-		dec_diff += manual_dec
-	elif target == 'm92':
-		cluster_centre = SkyCoord('17:17:07.39', '43:08:09.40', unit=(u.hourangle, u.deg), frame='icrs')     #hard coded m92
-		ra_centre = cluster_centre.ra.degree     # in decimal degrees
-		dec_centre = cluster_centre.dec.degree   # in decimal degrees
-		ra_diff = (ra_centre-ra)*3600     #degrees to arcseconds
-		dec_diff = (dec_centre-dec)*3600   
+		arbitrary_pinhole_magnitude = 9.0
+		front_focus_scale = 1.38 #milliarcseconds per micron, which equals arcseconds per mm.  
+		#Measurements with pcu give 138.5 pixels per mm -> 1385 mas per mm -> 1.385 arcsec per mm.
 
-		manual_ra =  -(0) * osiris_scale    #manual offset to align images.
-		manual_dec = -(0) * osiris_scale
-		ra_diff += manual_ra
-		dec_diff += manual_dec
+
+		ref_new = Table([ref['id']], names=['name'], masked=False)
+
+		ref_new['x0'] = (ref['x'] * front_focus_scale) *-1            #*-1 to get East positive
+		ref_new['y0'] = ref['y'] * front_focus_scale
+
+
+		ref_new['x0e'] = 0.001 * front_focus_scale * np.ones(len(ref_new))   #Advance reproductions states pinhole tolerance is +- 1 micron.
+		ref_new['y0e'] = 0.001 * front_focus_scale * np.ones(len(ref_new))
+
+		ref_new['vx'] = np.zeros(len(ref_new))    #arcsec per year
+		ref_new['vy'] = np.zeros(len(ref_new))
+		ref_new['vxe'] = np.zeros(len(ref_new))     #arcsec per year
+		ref_new['vye'] = np.zeros(len(ref_new))     
+
+		ref_new['t0'] = 2023 * np.ones(len(ref_new))
+		ref_new['m0'] = arbitrary_pinhole_magnitude * np.ones(len(ref_new))    #actual pinhole brightness should be equal after flatfielding. Set arbitrary value of 9 for calculations.  
+
+		return ref_new
+
+	elif instrument == 'Hubble':
+
+		if target == 'm15':
+			cluster_centre = SkyCoord('21:29:58.33', '12:10:01.20', unit=(u.hourangle, u.deg), frame='icrs')     #hard coded m15
+			ra_centre = cluster_centre.ra.degree     # in decimal degrees
+			dec_centre = cluster_centre.dec.degree   # in decimal degrees
+			ra_diff = (ra_centre-ra)*3600     #degrees to arcseconds
+			dec_diff = (dec_centre-dec)*3600   
+
+			manual_ra =  -(13.19) * osiris_scale    #manual offset to align images.
+			manual_dec = -(15.15) * osiris_scale
+			ra_diff += manual_ra
+			dec_diff += manual_dec
+		elif target == 'm92':
+			cluster_centre = SkyCoord('17:17:07.39', '43:08:09.40', unit=(u.hourangle, u.deg), frame='icrs')     #hard coded m92
+			ra_centre = cluster_centre.ra.degree     # in decimal degrees
+			dec_centre = cluster_centre.dec.degree   # in decimal degrees
+			ra_diff = (ra-ra_centre)*3600     #degrees to arcseconds
+			dec_diff = (dec-dec_centre)*3600   
+
+			manual_ra =  -(0) * osiris_scale    #manual offset to align images.
+			manual_dec = -(0) * osiris_scale
+			ra_diff += manual_ra
+			dec_diff += manual_dec
+		else:
+			ra_diff = ra*3600     #degrees to arcseconds
+			dec_diff = dec*3600   
+
+			# print('{} can only be be m15 or m92'.format(target))
+
+		# cos_dec = np.cos(np.radians(dec))
+		# x = (ref['r'] - ra) * cos_dec * 3600.0   # arcsec
+		# y = (ref['d'] - dec) * 3600.0           # arcsec
+		#xe = ref['ra_error'] * cos_dec / 1e3      # arcsec
+		#ye = ref['dec_error'] / 1e3               # arcsec
+
+		# need to make a column of names. Maybe source ID too? Or can I skip it.
+
+		# ref['source_id'] = range(len(ref['x_0']))
+
+		# ref_new = table.Table([ref['source_id'].data.astype('S19')], names=['name'], masked=False)
+		ref_new = Table([ref['ID']], names=['name'], masked=False)
+
+		# ref_new['x0'] = x * -1.0
+		# ref_new['y0'] = y
+		#ref_new['x0e'] = xe
+		#ref_new['y0e'] = ye
+		ref_new['x0'] = (ref['x_0']-ra_diff) *-1            #*-1 to get East positive
+		ref_new['y0'] = ref['y_0']-dec_diff
+		ref_new['x0e'] = ref['1sig_intrcp_pmx'] * 40/1000   #40mas/pix to arcseconds
+		ref_new['y0e'] = ref['1sig_intrcp_pmy'] * 40/1000 
+
+		# Also convert the velocities. Note that gaia PM are already * cos(dec)
+		#ref_new['vx'] = ref['pmra'].data * -1.0 / 1e3 # asec/yr
+		#ref_new['vy'] = ref['pmdec'].data / 1e3
+		#ref_new['vxe'] = ref['pmra_error'].data / 1e3
+		#ref_new['vye'] = ref['pmdec_error'].data / 1e3
+		ref_new['vx'] = ref['pmx'] / 1000    #pmx is in mas per year. Converting to arcsec per year
+		ref_new['vy'] = ref['pmy'] / 1000
+		ref_new['vxe'] = ref['1sig_pmx'] / 1000     #arcsec per year
+		ref_new['vye'] = ref['1sig_pmy'] / 1000   
+
+		ref_new['t0'] = ref['time_bsln']  #is this correct? time_bsln seems to be 6 years. Set use_flystar_velocity = False for now.
+		# ref_new['source_id'] = ref['ID']
+
+		# Find sources without velocities and fix them up.
+		# idx = np.where(ref['pmy'].mask == True)[0]
+		# ref_new['vx'][idx] = 0.0
+		# ref_new['vy'][idx] = 0.0
+		# ref_new['vxe'][idx] = 0.0
+		# ref_new['vye'][idx] = 0.0
+
+		ref_new['m0'] = ref['m_F814W']
+		# ref_new['me'] = 1.09/ref['phot_g_mean_flux_over_error']
+		# ref_new['parallax'] = ref['parallax']
+		# ref_new['parallax_error'] = ref['parallax_error']
+
+		# Set the velocities (and uncertainties) to zero if they aren't measured.
+		idx = np.where(np.isnan(ref_new['vx']) == True)[0]
+		ref_new['vx'][idx] = 0.0
+		ref_new['vxe'][idx] = 0.0
+		ref_new['vy'][idx] = 0.0
+		ref_new['vye'][idx] = 0.0
+
+		ref_new = ref_new.filled()  #convert masked colunms to regular columns
+
+
+		if targets_dict != None:    #This section renames stars in ref_new using names from targets_dict.
+			for targ_name, targ_coo in targets_dict.items():
+				dx = ref_new['x0'] - (targ_coo[0] * -1.0)
+				dy = ref_new['y0'] - targ_coo[1]
+				dr = np.hypot(dx, dy)
+
+				idx = dr.argmin()
+
+				if dr[idx] < match_dr_max:
+					ref_new['name'][idx] = targ_name
+					print('Found match for: ', targ_name)
+
+		return ref_new
+
+
 	else:
-		print('{} can only be be m15 or m92'.format(target))
+		print("Instrument {} not recognized, must be 'PCU' or 'Hubble'".format(instrument))
 
-	# cos_dec = np.cos(np.radians(dec))
-	# x = (hubble['r'] - ra) * cos_dec * 3600.0   # arcsec
-	# y = (hubble['d'] - dec) * 3600.0           # arcsec
-	#xe = hubble['ra_error'] * cos_dec / 1e3      # arcsec
-	#ye = hubble['dec_error'] / 1e3               # arcsec
 
-	# need to make a column of names. Maybe source ID too? Or can I skip it.
-
-	# hubble['source_id'] = range(len(hubble['x_0']))
-
-	# hubble_new = table.Table([hubble['source_id'].data.astype('S19')], names=['name'], masked=False)
-	hubble_new = Table([hubble['ID']], names=['name'], masked=False)
-
-	# hubble_new['x0'] = x * -1.0
-	# hubble_new['y0'] = y
-	#hubble_new['x0e'] = xe
-	#hubble_new['y0e'] = ye
-	hubble_new['x0'] = (hubble['x_0']+ra_diff) *-1
-	hubble_new['y0'] = hubble['y_0']+dec_diff
-	hubble_new['x0e'] = hubble['1sig_intrcp_pmx'] * 40/1000   #40mas/pix to arcseconds
-	hubble_new['y0e'] = hubble['1sig_intrcp_pmy'] * 40/1000 
-
-	# Also convert the velocities. Note that gaia PM are already * cos(dec)
-	#hubble_new['vx'] = hubble['pmra'].data * -1.0 / 1e3 # asec/yr
-	#hubble_new['vy'] = hubble['pmdec'].data / 1e3
-	#hubble_new['vxe'] = hubble['pmra_error'].data / 1e3
-	#hubble_new['vye'] = hubble['pmdec_error'].data / 1e3
-	hubble_new['vx'] = hubble['pmx'] / 1000    #pmx is in mas per year. Converting to arcsec per year
-	hubble_new['vy'] = hubble['pmy'] / 1000
-	hubble_new['vxe'] = hubble['1sig_pmx'] / 1000     #arcsec per year
-	hubble_new['vye'] = hubble['1sig_pmy'] / 1000   
-
-	hubble_new['t0'] = hubble['time_bsln']
-	# hubble_new['source_id'] = hubble['ID']
-
-	# Find sources without velocities and fix them up.
-	# idx = np.where(hubble['pmy'].mask == True)[0]
-	# hubble_new['vx'][idx] = 0.0
-	# hubble_new['vy'][idx] = 0.0
-	# hubble_new['vxe'][idx] = 0.0
-	# hubble_new['vye'][idx] = 0.0
-
-	hubble_new['m0'] = hubble['m_F814W']
-	# hubble_new['me'] = 1.09/hubble['phot_g_mean_flux_over_error']
-	# hubble_new['parallax'] = hubble['parallax']
-	# hubble_new['parallax_error'] = hubble['parallax_error']
-
-	# Set the velocities (and uncertainties) to zero if they aren't measured.
-	idx = np.where(np.isnan(hubble_new['vx']) == True)[0]
-	hubble_new['vx'][idx] = 0.0
-	hubble_new['vxe'][idx] = 0.0
-	hubble_new['vy'][idx] = 0.0
-	hubble_new['vye'][idx] = 0.0
-
-	hubble_new = hubble_new.filled()  #convert masked colunms to regular columns
-
-	if targets_dict != None:
-		for targ_name, targ_coo in targets_dict.items():
-			dx = hubble_new['x0'] - (targ_coo[0] * -1.0)
-			dy = hubble_new['y0'] - targ_coo[1]
-			dr = np.hypot(dx, dy)
-
-			idx = dr.argmin()
-
-			if dr[idx] < match_dr_max:
-				hubble_new['name'][idx] = targ_name
-				print('Found match for: ', targ_name)
-
-	return hubble_new
-
-def get_osiris_files(starfindDir,file_slice):
-	filelist = os.listdir(starfindDir)
-	starfindFiles = fnmatch.filter(filelist,'ci*.lis')
-	starfindFiles.sort()
+def get_image_filenames(directory,file_slice):
+	filelist = os.listdir(directory)
+	# starfindFiles = fnmatch.filter(filelist,'ci*.lis')
+	image_files = fnmatch.filter(filelist,'i*_stars.txt')  #these may need to be converted to .lis files?
+	image_files.sort()
 	sl = slice(file_slice[0],file_slice[1])
-	starfindFiles = starfindFiles[sl]	
-	return starfindFiles
+	image_files = image_files[sl]	
+	return image_files
 
 def project_pos(refData_o, starlist,instrument):
 	#Assume that all osiris images have the same epoch.
@@ -1225,7 +1269,14 @@ def load_osiris_file(starfindDir,filename):
 	#Loads a starlist file, converts it to a StarList object.
 	with open (starfindDir + filename) as starfindFile:
 			starfindTable = starfindFile.read().splitlines()
-	osirisStarList = starlists.StarList.from_lis_file(starfindTable, error=False)
+	osirisStarList = starlists.StarList.from_lis_file(starfindTable, error=False)  #the starlists may be in _stars.txt files, not .lis files.
+	osirisStarList = starlists.StarList.from_table(starfindTable, error=False) 
+
+	#from_lis_file requires these columns in order: name, m, t, x ,y , snr, corr, N_frames, flux
+	# these are in the _stars.txt files, except for snr and corr.
+	# modify my other script to generate appropriate files.
+	#from_table requires name, x, y, and m.
+
 	return osirisStarList
 
 
@@ -1287,9 +1338,19 @@ def get_PA(filename):
 def calculate_PCU_guess(filename):
 	if config['instrument'] == 'OSIRIS':
 		hdr = fits.getheader(filename)
-		pcu_x = hdr['PCUX']   #these keywords may change
-		pcu_y = hdr['PCUY']
-		pcu_r = hdr['PCUR']
+		# pcu_x = float(hdr['PCSFX'])   #these keywords may change
+		# pcu_y = float(hdr['PCSFY'])
+		# pcu_r = hdr['PCUR']
+		# pcu_r = 65.703
+		raw_filename = filename[-25:-10] + filename[-5:]
+		mask = log['Filename'] == raw_filename
+		pcu_params = log[mask]
+
+		pcu_x = pcu_params['x']
+		pcu_y = pcu_params['y']
+		pcu_z = pcu_params['z']
+		pcu_r = pcu_params['r']
+		# print(pcu_x,pcu_y,pcu_r)
 
 		#four parameter transformation.
 		# x' = a0 + a1*x + a2*y
@@ -1307,19 +1368,21 @@ def calculate_PCU_guess(filename):
 		# so a2/a1 = tan(theta)
 		# S = cos(theta)/a1
 
-		S = 1  #this is the scaling parameter between the PCU reference list and the image.
-		theta_offset = 0   #this is some offset in degrees between the reported PCU rotation and the orientation we want.
-		theta = np.radians(pcu_r+theta_offset)  #check the sign of the rotation
+		S = 138.5  #pixels per mm
+		theta_offset = 65.703   #this is some offset in degrees between the reported PCU rotation and the orientation we want.
+		theta = np.radians(pcu_r-theta_offset)  #check the sign of the rotation
 		a1 = S * math.cos(theta)
 		a2 = S * math.sin(theta)
 
-		#spacing between pinholes = 69.52 pixels = 0.5 mm. This should be remeasured.
-		pinhole_scaling_factor = 69.52/0.5 #pixels per mm of PCU movement. 
-		pinhole_x_offset = 90  # converting PCU mm position to image position. This needs to be measured more precisely, by rotating.
-		pinhole_y_offset = 180  #
-		a0 = pinhole_scaling_factor*(pcu_x - pinhole_x_offset)  #in pixels
-		b0 = pinhole_scaling_factor* (pcu_y - pinhole_y_offset)
-		#these constants assume that the PCU reference list is centred at 90,180
+		pinhole_scale = 138.5 #pixles per mm on the pinhole mask.
+		pinhole_x_offset = 91.05  # mm
+		pinhole_y_offset = 183.95  # mm
+		pinhole_x_center = 1667 +9 #pixels.  The location of the center of the pinohole mask in pixels when the PCU is at the offset position above.
+		# pinhole_y_center = 613 #pixels  On raw image
+		pinhole_y_center = 1422 #on flipped image
+
+		a0 = S*(pcu_x - pinhole_x_offset) + pinhole_x_center  #in pixels
+		b0 = S*(pinhole_y_offset - pcu_y) + pinhole_y_center #flip applied to image, so using negative pix coordinates
 
 		four_p = Empty()
 		four_p.__class__ = transforms.four_paramNW   #I am trying to create an instance of the class without calling __init__, which requires two lists of stars to be passed in.
@@ -1328,7 +1391,7 @@ def calculate_PCU_guess(filename):
 		four_p.order = None
 		four_p.mag_offset = 0
 	else:
-		print('Instruments other than OSIRIS not supported yet')
+		print('Instruments other than OSIRIS not supported')
 		sys.exit(0)
 	return four_p
 

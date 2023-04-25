@@ -419,11 +419,20 @@ def find_stars_single(img_file, fwhm, threshold, N_passes, plot_psf_compare, mas
 
         fwhm_curr = np.mean([x_fwhm_med, y_fwhm_med])
 
-        formats = {'xcentroid': '%8.3f', 'ycentroid': '%8.3f', 'sharpness': '%.2f',
+        # formats = {'xcentroid': '%8.3f', 'ycentroid': '%8.3f', 'sharpness': '%.2f',
+        #            'roundness1': '%.2f', 'roundness2': '%.2f', 'peak': '%10.1f',
+        #            'flux': '%10.6f', 'mag': '%6.2f', 'x_fwhm': '%5.2f', 'y_fwhm': '%5.2f',
+        #            'theta': '%6.3f', 'LSS': '%5.2f', 'FVU': '%5.2f','MFR': '%5.2f',}
+
+        sources.rename_column('id', 'name')                         #Flystar requires these column names.
+        sources.rename_column('xcentroid', 'x')
+        sources.rename_column('ycentroid', 'y')
+        sources.rename_column('mag', 'm')
+        formats = {'x': '%8.3f', 'y': '%8.3f', 'sharpness': '%.2f',
                    'roundness1': '%.2f', 'roundness2': '%.2f', 'peak': '%10.1f',
-                   'flux': '%10.6f', 'mag': '%6.2f', 'x_fwhm': '%5.2f', 'y_fwhm': '%5.2f',
-                   'theta': '%6.3f', 'LSS': '%5.2f', 'FVU': '%5.2f','MFR': '%5.2f',}
-    
+                   'flux': '%10.6f', 'm': '%6.2f', 'x_fwhm': '%5.2f', 'y_fwhm': '%5.2f',
+                   'theta': '%6.3f', 'LSS': '%5.2f', 'FVU': '%5.2f','MFR': '%5.2f',}    
+
         sources.write(img_file.replace('.fits', '_stars.txt'), format='ascii.fixed_width',
                           delimiter=None, bookend=False, formats=formats, overwrite=True)
 
