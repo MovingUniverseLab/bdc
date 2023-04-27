@@ -93,31 +93,26 @@ import datetime
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-c", "--config", required = True, help = "Configuration file")
-parser.add_argument("-o", "--output", required = True, help = "Output folder")
+# parser.add_argument("-o", "--output", required = True, help = "Output folder")
 args = parser.parse_args()
 print("Config file is: {}".format(args.config))
-print("Output folder is : {}".format(args.output))
 
 with open(args.config, "r") as ymlfile:
 	config = yaml.safe_load(ymlfile)
 
-	# for section in config:
-	# 	print(section)
-	# print('----')
-	# # print(cfg)
-	# print(config["reference"])
-	# print(config["n1"]['bad_files'])
-	# print(config["n1"]['bad_files'][0])
-	# for night in config['nights']:
-	# 	print(config[night]['target'])
+# print("Output folder is : {}".format(args.output))
+print("Output folder is : {}".format(config['output_dir']))
+
+if config['instrument'] == 'OSIRIS':
+	osiris = instruments.OSIRIS()
+	frame_centre = [1024,1024]
+else:
+	print('Instrument {} not supported, only OSIRIS'.format(config['instrument']))
+
+
 
 
 def main():
-	if config['instrument'] == 'OSIRIS'
-		osiris = instruments.OSIRIS()
-	else:
-		print('Can\'t handle instrument {}, only OSIRIS'.format(config['instrument']))	
-	
 	refTable_current = {}	#holds most recent refTable for each night #this is the reference table that keeps getting updated by the reference section.
 	if config['generate_reference_frame']:
 		for ref_iteration in range(config['ref_iterations']):
@@ -156,14 +151,14 @@ def distortion_section(refTable_current):
 	for night in obs_nights:
 		tab1_initial[night]=[]
 
-	refTable_current_filename = '{}refTable_current_{}_{}'.format(resultDir,fp_iteration) #this should be somewhere else?
+	refTable_current_filename = '{}refTable_current_{}_{}'.format(config['output_dir'],fp_iteration) #this should be somewhere else?
 
 	# do I need the empty lists here in order to append to them?
 	#if I am loading dist files then tab1_intial can break if a set of fp_iterations was incomplete - it won't run the first iteration to generate tab1_initial. Need to save as a file?
 
 	for fp_iteration in fp_iterations:
 
-		matched_star_table_name = '{}dist_measures_{}_{}_{}.txt'.format(resultDir,solution_year,ref_iteration,fp_iteration)
+		matched_star_table_name = '{}dist_measures_{}_{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration)
 		matched_star_table = {}   #matched star lists from each image are all appended to this dictionary. Should be an astropy table? Lots of appending lists. Convert later?
 		plate_scale_and_rotations = {}
 
@@ -191,10 +186,18 @@ def distortion_section(refTable_current):
 						continue
 
 					starlist = load_osiris_file(config[night]['starlist_dir'] ,filename)
-					fitsfile = config[night]['cleanDir'] + filename[:-12] + '.fits'
+					if config['instrument'] == 'OSIRIS:'
+						# fitsfile = config[night]['fits_dir'] + filename[:-12] + '.fits'     #for _0.8_stf.lis files
+						fitsfile = config[night]['fits_dir'] + filename[:-10] + '.fits'     #for _start.txt files
+						#  example list files: ci211024_a005002_flip_0.8_stf.lis or i230413_a003004_flip_stars.txt
+						#  example fits files: ci211024_a014003_flip.fits or i230413_a003004_flip.fits
+					else:
+						print('Instrument {} not supported, on OSIRIS'.format(config['instrument']))
+
+
 					PA = get_PA(fitsfile)
 					# starlist = brightest_n(starlist,170)
-					starlist = mag_cut(starlist,0,config[night]['minmag'])
+					starlist = mag_cut(starlist,config[night]['mag_limits'][0],config[night]['mag_limits'][1])
 					if not filename in config[night]['dont_trim']:
 						starlist = edge_cut(starlist,5)
 					if len(starlist) == 0:					
@@ -210,15 +213,15 @@ def distortion_section(refTable_current):
 
 					try:
 
-						transformation_guess_file = '{}tform_{}_{}_{}.p'.format(tformDir,ref_iteration,fp_iteration,filename) #this needs to be reworked for the PCU
+						transformation_guess_file = '{}tform_{}_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)
 
-						if config['ref_instrument'] == 'PCU':
-							transformation_guess = calculate_PCU_guess(filename)
+						if os.path.exists(transformation_guess_file):
+							print('Loading transform guess')
+							with open(transformation_guess_file, 'rb') as trans_file:
+								transformation_guess = pickle.load(trans_file) 	
 						else:
-							if os.path.exists(transformation_guess_file):
-								print('Loading transform guess')
-								with open(transformation_guess_file, 'rb') as trans_file:
-									transformation_guess = pickle.load(trans_file) 	
+							if config['ref_instrument'] == 'PCU':
+								transformation_guess = calculate_PCU_guess(filename)							
 							else:
 								# transformation_guess = last_good_transform
 								print('Not loading transform guess')
@@ -269,17 +272,22 @@ def distortion_section(refTable_current):
 						if len(ref_idx) <= 10:
 							print(i, filename, 'Only', len(ref_idx),'matched, skipping')
 							errorlist.append(filename[:-4])
-							return
+							break  #return works too?
 						with open(transformation_guess_file, 'wb') as temp:
 							pickle.dump(tform, temp)
 
 						print(i, filename, len(refTable_d), 'Reference stars,', len(starlist_corrected), 'OSIRIS stars,', len(ref_idx), 'matches')
 						
-						px = tform_inv[j].px
-						py = tform_inv[j].py
+						# px = tform_inv[j].px
+						# py = tform_inv[j].py
+						# theta = math.atan2(px[2],px[1])
+						# scale = math.cos(theta) / px[1] #this may be a mistake, google says it's px[1]/cos(theta). Maybe that's why the inverse transformation works?
+						
+						px = tform[j].px
+						py = tform_[j].py
 						theta = math.atan2(px[2],px[1])
-						scale = math.cos(theta) / px[1]
-						#this may be a mistake, google says it's px[1]/cos(theta). Maybe that's why the inverse transformation works?
+						scale = px[1] / math.cos(theta)	
+
 						plate_scale_and_rotations.setdefault('Filename',[]).append(filename)
 						plate_scale_and_rotations.setdefault('Scale',[]).append(scale)
 						plate_scale_and_rotations.setdefault('Rotation',[]).append(math.degrees(theta))
@@ -312,7 +320,7 @@ def distortion_section(refTable_current):
 
 				plate_scale_and_rotations['Difference'] = plate_scale_and_rotations['Rotation'] - plate_scale_and_rotations['PA']
 				transform_table = Table(plate_scale_and_rotations)
-				ascii.write(transform_table,'{}t_params_{}_{}.txt'.format(resultDir,ref_iteration,night),format='fixed_width', overwrite=True)
+				ascii.write(transform_table,'{}t_params_{}_{}.txt'.format(config['output_dir'],ref_iteration,night),format='fixed_width', overwrite=True)
 				# print('Mean scale =', np.mean(scales))
 				# print('Mean rotation offset =', np.mean(plate_scale_and_rotations['Difference']))
 				
@@ -376,7 +384,7 @@ def distortion_section(refTable_current):
 			y_coefficient_values.append(a.value)
 
 		output_table = Table([x_coefficient_names,x_coefficient_values, y_coefficient_names,y_coefficient_values], names = ('px_name','px_val','py_name','py_val'),)
-		ascii.write(output_table,'{}distortion_coefficients_{}_{}_{}.txt'.format(resultDir,solution_year,ref_iteration,fp_iteration),format='fixed_width', overwrite=True)
+		ascii.write(output_table,'{}distortion_coefficients_{}_{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration),format='fixed_width', overwrite=True)
 
 
 	return current_distortion_correction #returns the final distortion correction
@@ -404,8 +412,8 @@ def reference_section(refTable_current,distortion_model):
 			#perhaps make this next section possibly generate a new reference frame, then always load from file. For consistency.
 			#make a function to choose the ref file? It's just checking if there's a previous one, can probably do one step.
 
-			# combined_ref_filename = resultDir + 'combined_ref_table_' + str(ref_iteration) + '.txt'
-			combined_ref_filename = '{}combined_ref_table_{}_{}.txt'.format(resultDir,night,ref_iteration)
+			# combined_ref_filename = config['output_dir'] + 'combined_ref_table_' + str(ref_iteration) + '.txt'
+			combined_ref_filename = '{}combined_ref_table_{}_{}.txt'.format(config['output_dir'],night,ref_iteration)
 
 			if create_combined_reflist or (not os.path.exists(combined_ref_filename)):
 				list_of_starlists = []
@@ -418,11 +426,11 @@ def reference_section(refTable_current,distortion_model):
 						# errorlist.append(filename[:-4])
 					print('{} {} applying distortion correction'.format(i,filename))
 					
-					fitsfile = config[night]['cleanDir'] + filename[:-12] + '.fits'
+					fitsfile = config[night]['fits_dir'] + filename[:-12] + '.fits'
 					PA = get_PA(fitsfile)
 					starlist = load_osiris_file(config[night]['config[night]['starlist_dir']'] ,filename)
 					# starlist = brightest_n(starlist,170)
-					starlist = mag_cut(starlist,0,minmag)
+					starlist = mag_cut(starlist,config[night]['mag_limits'][0],config[night]['mag_limits'][1])
 					if not filename in config[night]['dont_trim']:
 						starlist = edge_cut(starlist,5)
 					if len(starlist) == 0:
@@ -436,9 +444,9 @@ def reference_section(refTable_current,distortion_model):
 					xt, yt = correction_list[ref_iteration].evaluate(starlist['x'],starlist['y'])    #apply distortion correction
 
 					if config[night]['centred']:
-						xc, yc = correction_list[ref_iteration].evaluate(1024,1024)
-						xc -= 1024
-						yc -= 1024						
+						xc, yc = correction_list[ref_iteration].evaluate(frame_centre[0],frame_centre[1])
+						xc -= frame_centre[0]
+						yc -= frame_centre[1]						
 					else:
 						xc = 0
 						yc = 0
@@ -457,7 +465,7 @@ def reference_section(refTable_current,distortion_model):
 				print('Completed applying distortion corrections')
 
 		
-				reference_transformation_guess_file = '{}combining_ref/tform_{}_{}.p'.format(tformDir,ref_iteration,night)
+				reference_transformation_guess_file = '{}combining_ref/tform_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,night)
 
 				# this should be a list of all the tranformation guesses from the distortion section.
 				single_transformation_guess_list = ['/u/mfreeman/work/d/transform_files/hubble/tform_{}.p'.format(i) for i in osiris_filenames]
@@ -581,8 +589,9 @@ def find_outliers(x,y,xref,yref,star_id,verbose=False):
 	#scan grid over field. Flag any points as outliers.  Service(2016) did 205x205 pixel bins. removing 3 sigma outliers.
 	dx = x - xref
 	dy = y - yref
-	# bins = np.array([0,512,1024,1536,2048])   #looks like 512x512 bins are the best.
-	bins = np.arange(0,2048+1,256)
+	if config['instrument'] == 'OSIRIS':
+		# bins = np.array([0,512,1024,1536,2048])   #looks like 512x512 bins are the best.
+		bins = np.arange(0,2048+1,256)
 
 	xbin = np.digitize(x,bins)
 	ybin = np.digitize(y,bins)
@@ -846,12 +855,12 @@ def prepare_ref_for_flystar(ref, ra, dec, target, instrument, targets_dict=None,
 
 def get_image_filenames(directory,file_slice):
 	filelist = os.listdir(directory)
-	# starfindFiles = fnmatch.filter(filelist,'ci*.lis')
-	image_files = fnmatch.filter(filelist,'i*_stars.txt')  #these may need to be converted to .lis files?
-	image_files.sort()
+	# lis_files = fnmatch.filter(filelist,'ci*.lis')
+	lis_files = fnmatch.filter(filelist,'i*_stars.txt')  #these may need to be converted to .lis files?
+	lis_files.sort()
 	sl = slice(file_slice[0],file_slice[1])
-	image_files = image_files[sl]	
-	return image_files
+	lis_files = lis_files[sl]	
+	return lis_files
 
 def project_pos(refData_o, starlist,instrument):
 	#Assume that all osiris images have the same epoch.
@@ -893,13 +902,13 @@ def project_pos(refData_o, starlist,instrument):
 
 def load_transformation_guess():
 	if reference_instrument == 'Hubble':
-		tform_file_1 = '{}tform_{}_{}_{}.p'.format(tformDir,ref_iteration,fp_iteration,filename)	#don't need to enter the night, because the filename includes the date and so is unique
+		tform_file_1 = '{}tform_{}_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)	#don't need to enter the night, because the filename includes the date and so is unique
 		tform_file_2 = '{}tform_{}_{}.p'.format(transform_files_location,ref_iteration,filename)
 		tform_file_3 = '/u/mfreeman/work/d/transform_files/hubble/tform_{}.p'.format(filename)
 
 	elif reference_instrument == 'GAIA':
 		#out of date
-		tform_file_1 = '{}tform_{}_{}.p'.format(tformDir,ref_iteration,filename)
+		tform_file_1 = '{}tform_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,filename)
 		tform_file_2 = '{}tform_{}_{}.p'.format(transform_files_location,fitmode,ref_iteration,filename)
 		tform_file_3 = '/u/mfreeman/work/d/transform_files/gaia/tform_{}.p'.format(filename)
 
@@ -1013,9 +1022,9 @@ def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iterat
 		unexplained_x_error = 0
 		unexplained_y_error = 0
 		if centred:
-			a,b = legendre_transformation.evaluate(1024,1024)
-			x_central = a-1024
-			y_central = b-1024
+			a,b = legendre_transformation.evaluate(frame_centre[0],frame_centre[1])
+			x_central = a-frame_centre[0]
+			y_central = b-frame_centre[1]
 			xts = xts - x_central
 			yts = yts - y_central
 			xref = xref - x_central
@@ -1040,7 +1049,7 @@ def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iterat
 
 			for f, filename_1 in enumerate(osiris_filenames_dict[night]):
 				# tform_file_4p = './transform_files/hubble/tform_{}_{}.p'.format(ref_iteration,filename_1)
-				tform_file_4p = '{}tform_{}_{}_{}.p'.format(tformDir,ref_iteration,fp_iteration,filename_1)
+				tform_file_4p = '{}tform_{}_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename_1)
 				with open(tform_file_4p, 'rb') as trans_file:
 					transform_4p = pickle.load(trans_file) 	
 
@@ -1074,7 +1083,7 @@ def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iterat
 				plt.xlabel('RA (arcsec)')
 				plt.ylabel('Dec (arcsec)')
 				plt.title('Sky Distortion residuals_b {} {}'.format(ref_iteration,f))
-				plt.savefig('{}sky_resid_b_individual/{}/{}/{}/residual_b_quiver_{}_{}_{}_{}_{}.pdf'.format(plotDir,ref_iteration,night,fp_iteration,solution_year,ref_iteration,night,fp_iteration,f), bbox_inches='tight',dpi=200)
+				plt.savefig('{}sky_resid_b_individual/{}/{}/{}/residual_b_quiver_{}_{}_{}_{}.pdf'.format(plotDir,ref_iteration,night,fp_iteration,ref_iteration,night,fp_iteration,f), bbox_inches='tight',dpi=200)
 				# q = plt.quiver(xts[outliers],yts[outliers],(xref[outliers]-xts[outliers]),(yref[outliers]-yts[outliers]), color='red', scale=quiv_scale, angles='xy',width=0.0005)
 
 			plt.figure(num=2,figsize=(6,6),clear=False)
@@ -1085,7 +1094,7 @@ def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iterat
 			plt.ylabel('Dec (arcsec)')
 			plt.title('Sky Distortion residuals_b {}'.format(ref_iteration))
 			os.makedirs('{}sky_resid_b/{}/{}/'.format(plotDir,ref_iteration,night),exist_ok=True)
-			plt.savefig('{}sky_resid_b/{}/{}/residual_b_quiver_{}_{}_{}_{}.pdf'.format(plotDir,ref_iteration,night,solution_year,ref_iteration,night,fp_iteration), bbox_inches='tight',dpi=200)
+			plt.savefig('{}sky_resid_b/{}/{}/residual_b_quiver_{}_{}_{}.pdf'.format(plotDir,ref_iteration,night,ref_iteration,night,fp_iteration), bbox_inches='tight',dpi=200)
 		# plt.close('all')
 
 		#-------------------------------------------------------------
@@ -1104,8 +1113,8 @@ def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iterat
 		# plt.axis('equal')
 		# plt.set_aspect('equal','box')
 		plt.title('Distortion residuals_b {}'.format(ref_iteration))
-		# plt.savefig('{}/residual_b/residual_b_quiver_{}_{}.pdf'.format(plotDir,solution_year,ref_iteration), bbox_inches='tight',dpi=200)
-		plt.savefig('{}/residual_b/residual_b_quiver_{}_{}_{}.jpg'.format(plotDir,solution_year,ref_iteration,fp_iteration), bbox_inches='tight',dpi=600)
+		# plt.savefig('{}/residual_b/residual_b_quiver_{}.pdf'.format(plotDir,ref_iteration), bbox_inches='tight',dpi=200)
+		plt.savefig('{}/residual_b/residual_b_quiver_{}_{}.jpg'.format(plotDir,ref_iteration,fp_iteration), bbox_inches='tight',dpi=600)
 
 
 		for night in obs_nights:
@@ -1150,7 +1159,7 @@ def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iterat
 		median_4p_residual = np.median(residuals_b[include])
 
 		print(f'Ref_Iteration:{ref_iteration} fp_iteration:{fp_iteration} Median_residual:{median_4p_residual:.5f}')
-		with open('{}fp_iteration_residuals_{}.txt'.format(resultDir,solution_year), 'a') as temp:
+		with open('{}fp_iteration_residuals.txt'.format(config['output_dir']), 'a') as temp:
 				temp.write(f'Ref_Iteration:{ref_iteration} fp_iteration:{fp_iteration} Median_residual_pix:{median_4p_residual:.5f} Median_residual_radec:{median_4p_residual_radec:.7f}\n')
 
 
@@ -1165,9 +1174,9 @@ def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iterat
 	if centred:
 		xref = xref + x_central 		# x_ref is already centred, so un-centre it.
 		yref = yref + y_central			
-		xc, yc = current_distortion_correction.evaluate(1024,1024)
-		xc -= 1024
-		yc -= 1024
+		xc, yc = current_distortion_correction.evaluate(frame_centre[0],frame_centre[1])
+		xc -= frame_centre[0]
+		yc -= frame_centre[1]
 	else:
 		xc = 0
 		yc = 0
@@ -1184,9 +1193,9 @@ def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iterat
 	dr = np.sqrt((x2-x1)**2 + (y2-y1)**2)
 	print("Mean distortion before shift", np.mean(dr))
 
-	a,b = tform_leg.evaluate(1024,1024)
-	x_central = a-1024
-	y_central = b-1024
+	a,b = tform_leg.evaluate(frame_centre[0],frame_centre[1])
+	x_central = a-frame_centre[0]
+	y_central = b-frame_centre[1]
 
 	x2_c = x2 - x_central
 	y2_c = y2 - y_central
@@ -1239,8 +1248,7 @@ def distortion_plot_print_save(distortion_data,legendre_transformation,fp_iterat
 
 	median_residuals_b_radec.append(median_4p_residual_radec)
 
-	#This section was at the end, after A. Moved here.
-	with open(resultDir + 'iteration_residuals_{}.txt'.format(solution_year), 'w') as temp:
+	with open(config['output_dir'] + 'iteration_residuals.txt'.format(), 'w') as temp:
 		for r, resid in enumerate(median_residuals_b):
 			# temp.write(str(resid) + '\n')
 			temp.write(f'Min:{min_residuals_b[r]:.5f}  Median:{median_residuals_b[r]:.5f}  Max:{max_residuals_b[r]:.5f}  Num:{num_residuals_b[r]:.5f}  Weighted mean:{mean_residuals_b[r]:.5f}  Weighted mean squared:{mean_residuals_b_squared[r]:.5f} Median_mas:{median_residuals_b_radec[r]:.7f} \n') #| Mean_a:{mean_residuals_a[r]:.5f}
@@ -1301,7 +1309,7 @@ def reference_section_plots(refTable_b):
 	plt.legend(loc='upper left')
 	plt.xlabel('Relative RA (arcsec)')
 	plt.ylabel('Relative Dec (arcsec)')
-	plt.savefig('{}combined_ref/new_reference_stars_{}_{}.jpg'.format(plotDir,solution_year,ref_iteration), bbox_inches='tight',dpi=200)
+	plt.savefig('{}combined_ref/new_reference_stars_{}.jpg'.format(plotDir,ref_iteration), bbox_inches='tight',dpi=200)
 	# plt.show()
 
 	print('{},{} matched stars in refTable_a'.format(len(idx1),len(idx2)))
@@ -1326,7 +1334,7 @@ def reference_section_plots(refTable_b):
 	# plt.axis('equal')
 	# plt.set_aspect('equal','box')
 	plt.title('Distortion residuals_a it:{}'.format(ref_iteration))
-	plt.savefig('{}residual_A/residual_quiver_{}_{}.jpg'.format(plotDir,solution_year,ref_iteration), bbox_inches='tight',dpi=200)
+	plt.savefig('{}residual_A/residual_quiver_{}.jpg'.format(plotDir,ref_iteration), bbox_inches='tight',dpi=200)
 
 
 

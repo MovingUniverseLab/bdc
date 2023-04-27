@@ -1,6 +1,7 @@
 nights       : ['n1']
 instrument   : 'OSIRSIS'
 ref_instrument : 'PCU'  #'PCU' or 'Hubble' 
+output_dir      : '/u/mfreeman/work/PCU/script_testing/distortion_testing/outputs/'
 legendre_order : 5
 generate_new_fp : True
 generate_reference_frame : False
@@ -12,16 +13,17 @@ manually_average_star_positions : True
 
 n1:
   target          : 'PCU'
-  starlist_dir    : '/u/mfreeman/work/PCU/script_testing/day3/raw/'
-  bad_files       : ['ci200804_a022007_flip_0.8_stf.lis','ci200804_a026012_flip_0.8_stf.lis','ci200804_a027003_flip_0.8_stf.lis',]
-  mag_limits      : [6,16]
+  starlist_dir    : '/u/mfreeman/work/PCU/script_testing/day3/raw/'      #location of the starlists
+  fits_dir        : '/u/mfreeman/work/PCU/script_testing/day3/raw/'      #location of the .fits files (or _flip.fits for OSIRIS)
+  tform_dir       : '/u/mfreeman/work/PCU/script_testing/day3/tforms/'
+  bad_files       : []
+  mag_limits      : [-5,16]      #stars outside this magnitude range are discarded. Also passed as limits to mosaic_to_ref()
   mag_tolerance   : [2, 2, 2]
   reference_file   : '/u/mfreeman/code/python/bdc/pinhole_grid_positions.txt' #'je0o61lzq_flt.xymrduvqpk'
   # targetID        : 1745948323734090368   #gaia ID of target star. Ra and Dec used in prepare_gaia_for_flystar()
   target_RA        : 0         #RA of target. Reference coordinates are given in relative RA to this position.  
   target_DEC       : 0
   # radius        : 20   #arcseconds
-  minmag          : 15.4  #dimmest mag for cut
   single_fit      : True  #run Mosaic2Ref for each image individually. Only works for true, delete?
   rad_tolerance   : [0.4, 0.4, 0.2]
   dont_trim       : [] #can probably delete this.
