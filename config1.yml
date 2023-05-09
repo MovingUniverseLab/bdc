@@ -1,11 +1,10 @@
 nights       : ['n1']
-instrument   : 'OSIRSIS'
-ref_instrument : 'PCU'  #'PCU' or 'Hubble' 
-output_dir      : '/u/mfreeman/work/PCU/script_testing/distortion_testing/outputs/'
+instrument   : 'OSIRIS'
+output_dir      : '/u/mfreeman/work/PCU/script_testing/distortion_testing/outputs1/'
 legendre_order : 5
 generate_new_fp : True
 generate_reference_frame : False
-fp_iterations  : 5
+fp_iterations  : 1
 ref_iterations : 8
 centred         : True
 use_flystar_velocity  : False
@@ -13,21 +12,23 @@ manually_average_star_positions : True
 
 n1:
   target          : 'PCU'
+  ref_instrument  : 'PCU'  #'PCU' or 'Hubble' 
+  reference_file  : '/u/mfreeman/code/python/bdc/pinhole_grid_positions.txt' #'je0o61lzq_flt.xymrduvqpk'
+  log_file        : '/u/mfreeman/work/PCU/script_testing/day3/PCU_20230413_060326.log'
   starlist_dir    : '/u/mfreeman/work/PCU/script_testing/day3/raw/'      #location of the starlists
   fits_dir        : '/u/mfreeman/work/PCU/script_testing/day3/raw/'      #location of the .fits files (or _flip.fits for OSIRIS)
-  tform_dir       : '/u/mfreeman/work/PCU/script_testing/day3/tforms/'
   bad_files       : []
+  tform_dir       : '/u/mfreeman/work/PCU/script_testing/day3/tforms1/'  #4-parameter transformation guesses will be loaded from and saved to here.
   mag_limits      : [-5,16]      #stars outside this magnitude range are discarded. Also passed as limits to mosaic_to_ref()
-  mag_tolerance   : [2, 2, 2]
-  reference_file   : '/u/mfreeman/code/python/bdc/pinhole_grid_positions.txt' #'je0o61lzq_flt.xymrduvqpk'
+  mag_tolerance   : [3, 3, 3]
   # targetID        : 1745948323734090368   #gaia ID of target star. Ra and Dec used in prepare_gaia_for_flystar()
   target_RA        : 0         #RA of target. Reference coordinates are given in relative RA to this position.  
   target_DEC       : 0
   # radius        : 20   #arcseconds
   single_fit      : True  #run Mosaic2Ref for each image individually. Only works for true, delete?
-  rad_tolerance   : [0.4, 0.4, 0.2]
+  rad_tolerance   : [0.6, 0.5, 0.4]
   dont_trim       : [] #can probably delete this.
-  slice           : [0,None]
+  slice           : [0,1]   #null
 n2:
   target          : 'M92'
   nightDir        : '/u/mfreeman/work/d/n2/'

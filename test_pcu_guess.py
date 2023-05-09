@@ -10,8 +10,8 @@ from matplotlib.colors import LogNorm, Normalize
 import math
 import sys
 
-fitsfiles = ['i230413_a003{0:03d}_flip.fits'.format(ii) for ii in range(3, 11+1)]
-fitsfiles = ['i230413_a003{0:03d}_flip.fits'.format(ii) for ii in range(3, 29+1)]
+fitsfiles = ['i230413_a003{0:03d}_flip.fits'.format(ii) for ii in range(3, 3+1)]
+# fitsfiles = ['i230413_a003{0:03d}_flip.fits'.format(ii) for ii in range(3, 29+1)]
 
 # fitsfiles = ['i230405_a006002_flip.fits']
 
@@ -44,8 +44,8 @@ def main():
 		norm = LogNorm(vmin, vmax)
 		plt.imshow(img, cmap='Greys_r', norm=norm, origin = "lower", )
 		plt.scatter(transformed_ref[:,0],transformed_ref[:,1],c='r',marker='.',edgecolors=None)
-		plt.xlim([512,1536])
-		plt.ylim([512,1536])
+		# plt.xlim([512,1536])
+		# plt.ylim([512,1536])
 		plt.show()
 
 def calculate_PCU_guess(filename,instrument='OSIRIS'):

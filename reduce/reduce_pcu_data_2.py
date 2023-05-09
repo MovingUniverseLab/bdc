@@ -8,7 +8,7 @@ import numpy as np
 from astropy.io import ascii, fits
 import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm, Normalize
-
+from astropy.time import Time
 
 
 raw_folder = '/u/mfreeman/work/PCU/script_testing/day3/raw/'
@@ -57,7 +57,7 @@ def reduce_PCU_data():
 
 	for filename in measurement_files:	
 		# reduce_fli.find_stars_single(raw_folder+filename,fwhm=5, threshold=6, N_passes=4, plot_psf_compare=False, mask_file=mask_file, sharp_lim=0.6, peak_max=20000,round_lim=0.7,dark=dark,flat=flat)
-		# find_stars_single(raw_folder+filename,fwhm=5, threshold=5, N_passes=4, plot_psf_compare=False, mask_file=mask_file, sharp_lim=0.6, peak_max=20000,round_lim=0.7,dark=dark,flat=flat)
+		find_stars_single(raw_folder+filename,fwhm=5, threshold=5, N_passes=4, plot_psf_compare=False, mask_file=mask_file, sharp_lim=0.6, peak_max=20000,round_lim=0.7,dark=dark,flat=flat)
 		pass
 	print('Done finding stars')
 
@@ -212,6 +212,7 @@ def find_stars_single(img_file, fwhm, threshold, N_passes, plot_psf_compare, mas
         fvu = np.zeros(len(sources), dtype=float)
         lss = np.zeros(len(sources), dtype=float)
         mfr = np.zeros(len(sources), dtype=float)
+        t = np.zeros(len(sources), dtype=float)
     
         # We will actually be resampling the images for the Gaussian fits.
         resamp = 1 #2 #BUG - changed this value for testing bin1 open loop
@@ -307,7 +308,8 @@ def find_stars_single(img_file, fwhm, threshold, N_passes, plot_psf_compare, mas
             lss[ss] = residual_ss
             fvu[ss] = fvu_ss
             mfr[ss] = med_fr_ss
-
+            obs_time = Time(hdr['MJD-OBS'], format='mjd')
+            t[ss] = obs_time.jyear
             if (plot_psf_compare == True) and (x_lo > 200) and (y_lo > 200):
                 #plt.figure(4, figsize=(6, 4))
                 vmin = cutout_resamp.min()
@@ -386,6 +388,7 @@ def find_stars_single(img_file, fwhm, threshold, N_passes, plot_psf_compare, mas
         sources['LSS'] = lss
         sources['FVU'] = fvu
         sources['MFR'] = mfr
+        sources['t'] = t
 
         # Save the average PSF (flux-weighted). Note we are making a slight mistake
         # here since each PSF has a different sub-pixel position... still same for both
@@ -431,7 +434,7 @@ def find_stars_single(img_file, fwhm, threshold, N_passes, plot_psf_compare, mas
         formats = {'x': '%8.3f', 'y': '%8.3f', 'sharpness': '%.2f',
                    'roundness1': '%.2f', 'roundness2': '%.2f', 'peak': '%10.1f',
                    'flux': '%10.6f', 'm': '%6.2f', 'x_fwhm': '%5.2f', 'y_fwhm': '%5.2f',
-                   'theta': '%6.3f', 'LSS': '%5.2f', 'FVU': '%5.2f','MFR': '%5.2f',}    
+                   'theta': '%6.3f', 'LSS': '%5.2f', 'FVU': '%5.2f','MFR': '%5.2f','t':'%5.2f'}    
 
         sources.write(img_file.replace('.fits', '_stars.txt'), format='ascii.fixed_width',
                           delimiter=None, bookend=False, formats=formats, overwrite=True)
