@@ -92,6 +92,7 @@ from matplotlib.colors import LogNorm, Normalize
 import numpy as np
 import math
 import datetime
+import copy
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-c", "--config", required = True, help = "Configuration file")
@@ -111,26 +112,33 @@ os.makedirs(plot_dir,exist_ok=True)
 refTable_current_filename = '{}refTable_current'.format(config['output_dir'])  #filename to save the refTable pickle
 
 if config['instrument'] == 'OSIRIS':
-	# kai_instrument = instruments.OSIRIS()
+	kai_instrument = instruments.OSIRIS()
 	frame_size = [2048,2048] #could read out hdr['NAXIS1'] and hdr['NAXIS2']
 else:
-	print('Instrument {} not supported, only OSIRIS'.format(config['instrument']))
+	print('Need to add a frame_size for {}'.format(config['instrument']))
 frame_centre = [frame_size[0]/2,frame_size[1]/2]  
 trim_not_used_in_trans=False
 
+pcu_x_keyword = 'PCSFX'
+pcu_y_keyword = 'PCSFY'
+pcu_z_keyword = 'PCUZ'
+pcu_r_keyword = 'PCUR'
 
 
 def main():
 	refTable_current = {}	#holds most recent refTable for each night #this is the reference table that keeps getting updated by the reference section.
 	results = {}
+	# old_distortion_model = None 
+	distortion_model = distortion_from_coefficients(some_filename) #load old distortion model
+	inverse_distortion_model = distortion_from_coefficients(inverse_some_filename)
 	if config['generate_reference_frame']:
 		for ref_iteration in range(config['ref_iterations']):
 			print('\n \n Ref Iteration {} \n'.format(ref_iteration))
-			distortion_model = distortion_section(refTable_current, ref_iteration,results)
+			distortion_model, inverse_distortion_model = distortion_section(refTable_current, ref_iteration,results,distortion_model,inverse_distortion_model)
 			new_refTable = reference_section(refTable_current,distortion_model,ref_iteration,results)
 			refTable_current = new_refTable
 	else:
-		distortion_model = distortion_section(refTable_current,0,results)
+		distortion_model,inverse_distortion_model = distortion_section(refTable_current,0,results,distortion_model)
 		#outputs are printed to files.
 
 
@@ -148,11 +156,11 @@ def main():
 
 	return distortion_model
 
-def distortion_section(refTable_current,ref_iteration,results):
+def distortion_section(refTable_current,ref_iteration,results,current_distortion_correction=None,inverse_distortion_correction=None):
 	#this section takes a reference table and some OSIRIS observations, matches them, and calculates a distortion model using Legendre polynomials.
 
 	# current_distortion_correction = initial_distortion_correction
-	current_distortion_correction = None
+	# current_distortion_correction = None
 	tab1_initial = {} #we only want to use the match table from the first four-parameter iteration
 	for night in config['nights']:
 		tab1_initial[night]=[]
@@ -201,7 +209,7 @@ def distortion_section(refTable_current,ref_iteration,results):
 						#KAI output files may look like may look like ci211024_a005002_flip_0.8_stf.lis, use this:					
 						#fitsfile = config[night]['fits_dir'] + filename[:-12] + '.fits'     #for _0.8_stf.lis files
 					else:
-						print('Instrument {} not supported, on OSIRIS'.format(config['instrument']))
+						print('Need to add filename conventions for {}'.format(config['instrument']))
 
 
 					PA = get_PA(config[night]['fits_dir']+fitsfile)
@@ -240,8 +248,8 @@ def distortion_section(refTable_current,ref_iteration,results):
 
 
 						starlist_corrected = starlist[:]
-						# if current_distortion_correction is not None:    #either this check, or the fp_iteration check.
-						if fp_iteration > 0:
+						# if fp_iteration > 0:
+						if current_distortion_correction is not None:    #either this check, or the fp_iteration check.
 							xt, yt = current_distortion_correction.evaluate(starlist_corrected['x'],starlist_corrected['y'])
 							starlist_corrected['x'] = xt 
 							starlist_corrected['y'] = yt 
@@ -268,12 +276,18 @@ def distortion_section(refTable_current,ref_iteration,results):
 							tform = msc.trans_list
 							tform_inv = msc.trans_list_inverse
 							#I only want to save the transformation from the subsequent iterations, not tab1.
-							if fp_iteration == 0:
-								tab1_initial[night].append(msc.ref_table)
-								#save tab1_initial to a file. Once it has all nights in it?
-							tab1 = tab1_initial[night][i]
-							#
+							# if fp_iteration == 0:
+							# 	tab1_initial[night].append(msc.ref_table)
+							# 	#save tab1_initial to a file. Once it has all nights in it?
+							# tab1 = tab1_initial[night][i]
+							
 							j = 0
+							tab1 = msc.ref_table
+							if inverse_distortion_correction is not None:
+								tab1['x_orig'][:,j], tab1['y_orig'][:,j] = inverse_distortion_correction.evaluate(tab1['x_orig'][:,j], tab1['y_orig'][:,j])
+	
+							#
+							
 						else:
 							j=i  # i=osiris index, j=gaia index
 							print('Only set up for single_fit mode')
@@ -310,9 +324,9 @@ def distortion_section(refTable_current,ref_iteration,results):
 						Raref = tab1['x0'][ref_idx]
 						Decref = tab1['y0'][ref_idx]						
 						xref, yref = tform_inv[j].evaluate(Raref,Decref)						
-						plot_scatter(starlist_corrected['x'],starlist_corrected['y'], fitsfile,'{}{}_scatter_{}/'.format(plot_dir,night,ref_iteration),night)
-						plot_matched(x,y,xref,yref, fitsfile,'{}{}_matched_{}/'.format(plot_dir,night,ref_iteration),tab1['use_in_trans'][ref_idx],night)
-						plot_quiver(x,y,xref,yref,fitsfile,'{}{}_quiver_{}/'.format(plot_dir,night,ref_iteration),tab1['use_in_trans'][ref_idx],night)
+						plot_scatter(starlist_corrected['x'],starlist_corrected['y'], fitsfile,'{}{}_scatter_{}/'.format(plot_dir,night,ref_iteration),night,fp_iteration)
+						plot_matched(x,y,xref,yref, fitsfile,'{}{}_matched_{}/'.format(plot_dir,night,ref_iteration),tab1['use_in_trans'][ref_idx],night,fp_iteration)
+						plot_quiver(x,y,xref,yref,fitsfile,'{}{}_quiver_{}/'.format(plot_dir,night,ref_iteration),tab1['use_in_trans'][ref_idx],night,fp_iteration)
 					
 					except AssertionError as err:
 						print(filename[:-4], 'Assertion error:')
@@ -388,9 +402,9 @@ def distortion_section(refTable_current,ref_iteration,results):
 																			config['legendre_order'], m=None, mref=None,init_gx=None, init_gy=None, weights=None, mag_trans=True
 																			) # Defines a bivariate legendre tranformation from x,y -> xref,yref using Legnedre polynomials as the basis.
 
-		current_distortion_correction = legendre_transformation  #update current_distortion_correction with latest Legendre polynomial
 
-		distortion_plot_print_save(distortion_data,include,current_distortion_correction,fp_iteration,ref_iteration,results)
+
+		distortion_plot_print_save(distortion_data,include,legendre_transformation,inverse_legendre_transformation,fp_iteration,ref_iteration,results)
 
 		x_coefficient_names = []
 		x_coefficient_values = []
@@ -412,7 +426,28 @@ def distortion_section(refTable_current,ref_iteration,results):
 		ascii.write(output_table,'{}distortion_coefficients_{}_{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration),format='fixed_width', overwrite=True)
 
 
-	return current_distortion_correction #returns the final distortion correction
+
+
+		inverse_legendre_transformation = transforms.LegTransform.derive_transform(distortion_data['x_REF'][include], distortion_data['y_REF'][include], distortion_data['x_IM'][include], distortion_data['y_IM'][include], 
+																			config['legendre_order'], m=None, mref=None,init_gx=None, init_gy=None, weights=None, mag_trans=True
+																			) #The inverse of the distortion correction: adds distortion to an undistorted image.
+
+		x_coefficient_names = []
+		x_coefficient_values = []
+		y_coefficient_names = []
+		y_coefficient_values = []
+		for param in inverse_legendre_transformation.px.param_names:
+			a = getattr(inverse_legendre_transformation.px, param)
+			x_coefficient_names.append(a.name)
+			x_coefficient_values.append(a.value)
+		for param in inverse_legendre_transformation.py.param_names:
+			a = getattr(inverse_legendre_transformation.py, param)
+			y_coefficient_names.append(a.name)
+			y_coefficient_values.append(a.value)
+		output_table = Table([x_coefficient_names,x_coefficient_values, y_coefficient_names,y_coefficient_values], names = ('px_name','px_val','py_name','py_val'),)
+		ascii.write(output_table,'{}inverse_distortion_coefficients_{}_{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration),format='fixed_width', overwrite=True)
+
+	return legendre_transformation, inverse_legendre_transformation #returns the final distortion correction
 
 
 
@@ -1023,7 +1058,7 @@ def append_to_matched_star_table(matched_star_table,tab1,ref_idx,tform,tform_inv
 	return
 
 
-def distortion_plot_print_save(distortion_data,include,legendre_transformation,fp_iteration,ref_iteration,results):
+def distortion_plot_print_save(distortion_data,include,legendre_transformation,inverse_legendre_transformation,fp_iteration,ref_iteration,results):
 	#this function takes a calculated distortion solution and generates various plots and outputs.
 	#it needs to be passed info like the four-parameter iteration, reference iteration, year?
 	#the main thing I want to save is the residuals.
@@ -1179,7 +1214,7 @@ def distortion_plot_print_save(distortion_data,include,legendre_transformation,f
 	plt.title('Residual distortion'.format())
 	# plt.savefig('{}/residual_b/residual_b_quiver_{}.pdf'.format(plot_dir,ref_iteration), bbox_inches='tight',dpi=200)
 	plt.savefig('{}residual_quiver_{}.jpg'.format(plot_dir,ref_iteration), bbox_inches='tight',dpi=600)
-	plt.show()
+	# plt.show()
 
 
 	#-------------------plotting quivers in RA Dec ------------------- 
@@ -1489,16 +1524,18 @@ def reference_section_plots(refTable_b):
 
 def get_PA(filename):
 	hdr = fits.getheader(filename)
+	# pa = hdr['PA_IMAG']	
+	pa = kai_instrument.get_instrument_angle(hdr)
 	# return math.radians(hdr['PA_IMAG'])
-	return hdr['PA_IMAG']
+	return pa
 
 def calculate_PCU_guess(starlist_filename,night):
 	if config['instrument'] == 'OSIRIS':
 		flip_filename = starlist_filename[:-10] + '.fits'
 		hdr = fits.getheader(config[night]['fits_dir']+flip_filename,ignore_missing_simple=True)
-		# pcu_x = float(hdr['PCSFX'])   #these keywords may change
-		# pcu_y = float(hdr['PCSFY'])
-		# pcu_r = hdr['PCUR']
+		# pcu_x = float(hdr[pcu_x_keyword])   #these keywords may change
+		# pcu_y = float(hdr[pcu_y_keyword])
+		# pcu_r = hdr[pcu_r_keyword]
 		# pcu_r = 65.703
 		log = ascii.read(config[night]['log_file'],format='basic')
 		raw_filename = flip_filename[:-10] + '.fits'
@@ -1587,7 +1624,7 @@ def calculate_PCU_guess(starlist_filename,night):
 		four_p.order = None
 		four_p.mag_offset = 12 #need a way of calculating this.  Should be mean(m_ref-m_obs)
 	else:
-		print('Instruments other than OSIRIS not supported')
+		print('Need to add PCU guess calculation for {}'.format(config['instrument']))
 		sys.exit(0)
 	return [four_p]
 
@@ -1651,7 +1688,7 @@ def trim_gaia(refTable,filename,PA):
 
 	# wrong sometimes. 24, 27, Position angle
 
-def plot_quiver(x,y,xref,yref,fitsfile,plot_directory,used,night):
+def plot_quiver(x,y,xref,yref,fitsfile,plot_directory,used,night,fp_iteration):
 	os.makedirs(plot_directory, exist_ok=True)		
 	quiv_scale=100
 	margin = 100
@@ -1667,11 +1704,13 @@ def plot_quiver(x,y,xref,yref,fitsfile,plot_directory,used,night):
 	# plt.axis('equal')
 	# plt.set_aspect('equal','box')
 	plt.title('Individual star distortions, Observed -> Reference')
-	plt.savefig(plot_directory + fitsfile[:-5] + '_quiver.jpg', bbox_inches='tight')
+	# plt.savefig(plot_directory + fitsfile[:-5] + '_quiver.jpg', bbox_inches='tight')
+	plt.savefig('{}{}_quiver_{}.jpg'.format(plot_directory,fitsfile[:-5],fp_iteration), bbox_inches='tight')
+
 	# plt.show()
 	# plt.close()
 
-def plot_scatter(x,y,fitsfile,plot_directory,night):
+def plot_scatter(x,y,fitsfile,plot_directory,night,fp_iteration):
 	os.makedirs(plot_directory, exist_ok=True)		
 	# fitsfile = cleanDir + filename[:-12] + '.fits'
 	img = fits.getdata(config[night]['fits_dir']+fitsfile)
@@ -1689,9 +1728,10 @@ def plot_scatter(x,y,fitsfile,plot_directory,night):
 	plt.ylim(-margin,frame_size[1]+margin)
 	plt.title('Observed stars')
 	plt.legend(loc='upper right')
-	plt.savefig(plot_directory + fitsfile[:-5] + '_scatter.pdf', bbox_inches='tight')
+	# plt.savefig(plot_directory + fitsfile[:-5] + '_scatter.pdf', bbox_inches='tight')
+	plt.savefig('{}{}_scatter_{}.jpg'.format(plot_directory,fitsfile[:-5],fp_iteration), bbox_inches='tight')
 
-def plot_matched(x,y,xref,yref,fitsfile,plot_directory,used,night):
+def plot_matched(x,y,xref,yref,fitsfile,plot_directory,used,night,fp_iteration):
 	os.makedirs(plot_directory, exist_ok=True)		
 	# fitsfile = cleanDir + filename[:-12] + '.fits'
 	img = fits.getdata(config[night]['fits_dir']+fitsfile)
@@ -1711,7 +1751,15 @@ def plot_matched(x,y,xref,yref,fitsfile,plot_directory,used,night):
 	plt.ylim(-margin,frame_size[1]+margin)
 	plt.title('Matched stars')
 	plt.legend(loc='upper right')
-	plt.savefig(plot_directory + fitsfile[:-5] + '_matched.pdf', bbox_inches='tight')
+	# plt.savefig(plot_directory + fitsfile[:-5] + '_matched.pdf', bbox_inches='tight')
+	plt.savefig('{}{}_matched_{}.jpg'.format(plot_directory,fitsfile[:-5],fp_iteration), bbox_inches='tight')
+
+
+def distortion_from_coefficients(filename):
+	#reads a file with a list of coefficients, generates a transformation object
+
+	return transformation
+
 
 
 def stack_frames():
