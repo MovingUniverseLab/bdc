@@ -109,7 +109,7 @@ plot_dir = config['output_dir'] + 'plots/'
 os.makedirs(config['output_dir'],exist_ok=True)
 os.makedirs(plot_dir,exist_ok=True)
 
-refTable_current_filename = '{}refTable_current'.format(config['output_dir'])  #filename to save the refTable pickle
+refTable_current_filename = '{}refTable_current.pickle'.format(config['output_dir'])  #filename to save the refTable pickle
 
 if config['instrument'] == 'OSIRIS':
 	kai_instrument = instruments.OSIRIS()
@@ -124,7 +124,6 @@ pcu_y_keyword = 'PCSFY'
 pcu_z_keyword = 'PCUZ'
 pcu_r_keyword = 'PCUR'
 
-
 def main():
 	refTable_current = {}	#holds most recent refTable for each night #this is the reference table that keeps getting updated by the reference section.
 	results = {}
@@ -134,7 +133,7 @@ def main():
 	if config['generate_reference_frame']:
 		for ref_iteration in range(config['ref_iterations']):
 			print('\n \n Ref Iteration {} \n'.format(ref_iteration))
-			distortion_model, inverse_distortion_model = distortion_section(refTable_current, ref_iteration,results,distortion_model,inverse_distortion_model)
+			distortion_model, inverse_distortion_model refTable_current = distortion_section(refTable_current, ref_iteration,results,distortion_model,inverse_distortion_model)
 			new_refTable = reference_section(refTable_current,distortion_model,ref_iteration,results)
 			refTable_current = new_refTable
 	else:
@@ -192,9 +191,10 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 						starlist0 = load_osiris_file(config[night]['starlist_dir'] ,osiris_filenames[0]) #load 1 file to get the epoch.
 						hubbleData_p = project_pos(hubbleData,starlist0,config[night]['ref_instrument'],config[night]['target'])
 						refTable_H = prepare_ref_for_flystar(hubbleData_p,config[night]['target_RA'],config[night]['target_DEC'],config[night]['target'],config[night]['ref_instrument'])
+					
 					refTable_current[night] = refTable_H.filled() #is this necessary?
 					with open(refTable_current_filename, 'wb') as temp:
-						pickle.dump(refTable_current, temp)
+						pickle.dump(refTable_current, temp)                #sav
 
 				for i, filename in enumerate(osiris_filenames):
 					if filename in config[night]['bad_files']:
@@ -228,11 +228,11 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 					if config[night]['ref_instrument'] == 'PCU':
 						refTable_d = refTable_tf[:]   #The PCU does not need to have DAR applied
 					else:
-						refTable_d = dar.applyDAR(config[night]['fits_dir']+fitsfile, refTable_tf, plot=False, instrument=osiris, plotdir=plotDir_n + 'dar_a/'+ str(ref_iteration) + '/')
+						refTable_d = dar.applyDAR(config[night]['fits_dir']+fitsfile, refTable_tf, plot=False, instrument=osiris, plotdir=plot_dir + 'dar_d/'+ str(ref_iteration) + '/')
 
 					try:
 
-						transformation_guess_file = '{}tform_{}_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)
+						transformation_guess_file = '{}tform_{}_{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)
 
 						if os.path.exists(transformation_guess_file):
 							print('Loading transform guess')
@@ -447,7 +447,7 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 		output_table = Table([x_coefficient_names,x_coefficient_values, y_coefficient_names,y_coefficient_values], names = ('px_name','px_val','py_name','py_val'),)
 		ascii.write(output_table,'{}inverse_distortion_coefficients_{}_{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration),format='fixed_width', overwrite=True)
 
-	return legendre_transformation, inverse_legendre_transformation #returns the final distortion correction
+	return legendre_transformation, inverse_legendre_transformation, refTable_current #returns the final distortion correction
 
 
 
@@ -456,15 +456,13 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 	#this function applies a distortion solution to the OSIRIS lists, and combines them into a single ref list to return (per night)
 	if len(refTable_current) == 0:
 		with open(refTable_current_filename, 'rb') as temp:
-			refTable_current = pickle.load(temp)   #Currently I do need this, to load the reftable saved from ... the last time.
+			refTable_current = pickle.load(temp)   #refTable_current should be populated from the distoriton_section. Can also read it in as a file here, maybe for doing the final loop.
 
 	#------------------------Night loop 1 starts here---------------------------
 
 	# obs_nights = [night for night in config]
 	# print(obs_nights)
 	for night in config['nights']:
-
-		plotDir_n = plot_dir + night + '/'   #Need to sort out which plots I actually need.
 
 		osiris_filenames = get_image_filenames(config[night]['starlist_dir'],config[night]['slice'])
 		print(len(osiris_filenames), 'OSIRIS images')
@@ -473,11 +471,11 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 		#make a function to choose the ref file? It's just checking if there's a previous one, can probably do one step.
 
 		# combined_ref_filename = config['output_dir'] + 'combined_ref_table_' + str(ref_iteration) + '.txt'
-		combined_ref_filename = '{}combined_ref_table_{}_{}.txt'.format(config['output_dir'],night,ref_iteration)
+		combined_ref_filename = '{}combined_ref_table_{}_{}.pickle'.format(config['output_dir'],night,ref_iteration)
 		failed_images = []
 		successful_images = []
 
-		if create_combined_reflist or (not os.path.exists(combined_ref_filename)):
+		if config['generate_reference_frame'] or (not os.path.exists(combined_ref_filename)):
 			list_of_starlists = []
 			print('Generating new combined refTable')
 
@@ -503,10 +501,10 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 				#load_and_prepare_data does something similar, but also trims the reference. Maybe split that up and use the function.
 				#or just don't use the function, it's only a few lines.
 
-				xt, yt = correction_list[ref_iteration].evaluate(starlist['x'],starlist['y'])    #apply distortion correction
+				xt, yt = distortion_model.evaluate(starlist['x'],starlist['y'])    #apply distortion correction
 
 				if config[night]['centred']:
-					xc, yc = correction_list[ref_iteration].evaluate(frame_centre[0],frame_centre[1])
+					xc, yc = distortion_model.evaluate(frame_centre[0],frame_centre[1])
 					xc -= frame_centre[0]
 					yc -= frame_centre[1]						
 				else:
@@ -517,7 +515,7 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 
 				# plt.figure(num=4,figsize=(6,6),clear=True)			
 				if config[night]['ref_instrument'] != 'PCU':
-					starlist = dar.removeDAR(config[night]['fits_dir']+fitsfile,starlist, plot=False, instrument=osiris, plotdir=plotDir_n + 'dar_r/'+ str(ref_iteration) + '/')
+					starlist = dar.removeDAR(config[night]['fits_dir']+fitsfile,starlist, plot=False, instrument=osiris, plotdir=plot_dir + 'dar_r/'+ str(ref_iteration) + '/')
 
 				list_of_starlists.append(starlist)
 
@@ -526,13 +524,14 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 			print('--------------------')
 			print('Completed applying distortion corrections')
 
-	
-			reference_transformation_guess_file = '{}combining_ref/tform_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,night)
+			# The transformation for each starlist is saved to this file, and can be loaded as an initial guess.
+			reference_transformation_guess_file = '{}combining_ref/tform_{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,night)
 
-			# this should be a list of all the tranformation guesses from the distortion section.
-			single_transformation_guess_list = ['/u/mfreeman/work/d/transform_files/hubble/tform_{}.p'.format(i) for i in osiris_filenames]
+			# If we don't have the above file, we can use all the individual transformations from the distortion section as a guess.
+			transformation_guess_file_list = ['{}tform_{}_{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,int(config['fp_iterations']-1),i) for i in osiris_filenames]
+			# transformation_guess_file = '{}tform_{}_{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)
 
-			use_single_trans_guesses = False
+			use_individual_trans_guesses = False
 			if os.path.exists(reference_transformation_guess_file):
 				print('Loading transform from {}'.format(reference_transformation_guess_file))
 				with open(reference_transformation_guess_file, 'rb') as trans_file:
@@ -542,39 +541,41 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 					print('Transform guess has correct number of lists {}'.format(len(trans_list_temp)))
 					reference_transformation_guess = trans_list_temp
 				else:
-					use_single_trans_guesses = True
+					use_individual_trans_guesses = True
 			else:
-				use_single_trans_guesses = True
+				use_individual_trans_guesses = True
 
-			if use_single_trans_guesses:
+			if use_individual_trans_guesses:
 				print('Loading old transform')
-				if os.path.exists(tform_file_ref_previous[0]):
+				if os.path.exists(transformation_guess_file_list[0]):
 					reference_transformation_guess = []
-					for i, tform_filename in enumerate(tform_file_ref_previous):
+					for i, tform_filename in enumerate(transformation_guess_file_list):
 						with open(tform_filename, 'rb') as trans_file:
-							trans_list.extend(pickle.load(trans_file))					#initial guess for the transformation
+							reference_transformation_guess.extend(pickle.load(trans_file))					#initial guess for the transformation
 																						#each file is a list with one element, so using .extend
 				else:
 					# trans_list = last_good_transform
-					print('No trans_list found')
+					print('No guesses found for reference transformation')
 					reference_transformation_guess = None
 
 
 			#Do I need to be able to pass these parameters in, or should they stay fixed? My testing found False/False to work best.
 			set_use_ref_new = False
 			set_update_ref_orig = False
+			dr_tolerance = [0.5,0.5,0.5] #these should probably be config parameters
+			dm_tolerance = [2,2,2]
 
 			print('Creating combined reference frame with MosaicToRef')
 			msc = align.MosaicToRef(refTable_current[night],
 				list_of_starlists, iters=3,
-				dr_tol=[0.5,0.5,0.5], dm_tol=[2,2,2],
+				dr_tol=dr_tolerance, dm_tol=dm_tolerance,
 				outlier_tol=[None,None,None],
 				trans_input=reference_transformation_guess,
 				trans_class=transforms.four_paramNW,
 				trans_args=[{'order': 1}, {'order': 1}, {'order': 1}],
 				use_vel=config['use_flystar_velocity'],
 				mag_trans=True,
-				mag_lim=[6,13], #[6,16],
+				mag_lim=config[night]['mag_limits'],
 				weights=None,
 				use_ref_new = set_use_ref_new,
 				update_ref_orig = set_update_ref_orig,
@@ -592,7 +593,7 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 				pickle.dump(msc.ref_table, temp)
 
 		else:
-			print('a: Loading previous combined refTable')
+			print('reference_section: Loading previous combined refTable')
 
 		#----------- end creation of combined_ref_file -------------------
 
@@ -621,8 +622,7 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 		refTable_b['m0'] = refTable_a['m0']
 		refTable_b['m0e'] = refTable_a['m0e']
 		# refTable_b['use_in_trans'] = refTable_a['use_in_trans']		#this causes a problem. If this column is present, align.py flags stars that are not used as not 'Keepers', and their weight is left as zero.
-
-		#can I just copy the whole table and delete the 'use_in_trans' column? The current way works at least.
+																		#Potential change: copy the whole table and delete the 'use_in_trans' column.
 
 		if trim_not_used_in_trans:
 			print('Trimming refTable_b to only include stars used in transformation')
@@ -630,13 +630,11 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 
 		temp, idx1, idx2 = np.intersect1d(refTable_b['name'].astype('str'),refTable_current[night]['name'],return_indices=True)
 
-		reference_section_plots(refTable_b)
+		reference_section_plots(refTable_b,refTable_current)
 
-		residuals_a = np.hypot(refTable_current[night]['x0'][idx2]-refTable_b['x0'][idx1],refTable_current[night]['y0'][idx2]-refTable_b['y0'][idx1])
-		# mean_residuals_a.append(np.mean(residuals_a))  #I don't want the hypot, keep them separate? Should be the mean anyway.
-		results.setdefault('mean_residuals_a',[]).append(np.mean(residuals_a))
-		print('All ref_iteration mean residuals_a = {}'.format(results['mean_residuals_a']))
-
+		residuals_r = np.hypot(refTable_current[night]['x0'][idx2]-refTable_b['x0'][idx1],refTable_current[night]['y0'][idx2]-refTable_b['y0'][idx1])
+		results.setdefault('mean_residuals_r',[]).append(np.mean(residuals_r))
+		print('All ref_iteration mean residuals_r = {}'.format(results['mean_residuals_r']))
 
 		refTable_current[night] = Table(refTable_b,copy=True)
 
@@ -1048,13 +1046,6 @@ def append_to_matched_star_table(matched_star_table,tab1,ref_idx,tform,tform_inv
 	matched_star_table.setdefault('RA_REF',[]).extend(GRa) 			#reference star RA
 	matched_star_table.setdefault('Dec_REF',[]).extend(GDec)
 
-	#don't need these plots?
-	# plot_image(Gx,Gy,Ox,Oy,fitsfile,plotDir_n + 'img/'+ str(ref_iteration) + '/',tab1['use_in_trans'][ref_idx])
-	# plot_scatter(Ox,Oy,Gx,Gy,fitsfile,plotDir_n + 'img_d/'+ str(ref_iteration) + '/',tab1['use_in_trans'][ref_idx])
-	# plot_quiver(Ox,Oy,Gx,Gy,filename[:-4],plotDir_n + 'quiver/'+ str(ref_iteration) + '/',tab1['use_in_trans'][ref_idx])
-	# if show_plots:
-		# plt.show()
-
 	return
 
 
@@ -1138,7 +1129,7 @@ def distortion_plot_print_save(distortion_data,include,legendre_transformation,i
 	with open(config['output_dir'] + 'iteration_residuals.txt'.format(), 'w') as temp:
 		for r, resid in enumerate(results['median_residuals']):
 			# temp.write(str(resid) + '\n')
-			temp.write(f"Min:{results['min_residuals'][r]:.5f}  Median:{results['median_residuals'][r]:.5f}  Max:{results['max_residuals'][r]:.5f}  Num:{results['num_residuals'][r]:.5f}  Weighted mean:{results['mean_residuals'][r]:.5f}  \n") #Weighted mean squared:{results['mean_residuals_squared'][r]:.5f} Mean_a:{results['mean_residuals_a'][r]:.5f} Median_mas:{results['median_residuals_radec'][r]:.7f} 
+			temp.write(f"Min:{results['min_residuals'][r]:.5f}  Median:{results['median_residuals'][r]:.5f}  Max:{results['max_residuals'][r]:.5f}  Num:{results['num_residuals'][r]:.5f}  Weighted mean:{results['mean_residuals'][r]:.5f}  \n") #Weighted mean squared:{results['mean_residuals_squared'][r]:.5f} Mean_a:{results['mean_residuals_r'][r]:.5f} Median_mas:{results['median_residuals_radec'][r]:.7f} 
 
 	print('Median residual = {}'.format(np.median(residuals[include])))
 	print('Weighted mean residual = {}'.format(weighted_mean_residual))
@@ -1431,7 +1422,7 @@ def distortion_plot_print_save(distortion_data,include,legendre_transformation,i
 	# with open(config['output_dir'] + 'iteration_residuals.txt'.format(), 'w') as temp:
 	# 	for r, resid in enumerate(results['median_residuals_b']):
 	# 		# temp.write(str(resid) + '\n')
-	# 		temp.write(f"Min:{results['min_residuals_b'][r]:.5f}  Median:{results['median_residuals_b'][r]:.5f}  Max:{results['max_residuals_b'][r]:.5f}  Num:{results['num_residuals_b'][r]:.5f}  Weighted mean:{results['mean_residuals_b'][r]:.5f}  Weighted mean squared:{results['mean_residuals_b_squared'][r]:.5f} \n") #| Mean_a:{results['mean_residuals_a'][r]:.5f} Median_mas:{results['median_residuals_b_radec'][r]:.7f} 
+	# 		temp.write(f"Min:{results['min_residuals_b'][r]:.5f}  Median:{results['median_residuals_b'][r]:.5f}  Max:{results['max_residuals_b'][r]:.5f}  Num:{results['num_residuals_b'][r]:.5f}  Weighted mean:{results['mean_residuals_b'][r]:.5f}  Weighted mean squared:{results['mean_residuals_b_squared'][r]:.5f} \n") #| Mean_a:{results['mean_residuals_r'][r]:.5f} Median_mas:{results['median_residuals_b_radec'][r]:.7f} 
 
 	# print('Median residual = {}'.format(median_4p_residual))
 	# # print('Median residual radec = {}'.format(median_4p_residual_radec))		
@@ -1472,7 +1463,7 @@ def load_osiris_file(starfind_Dir,filename):
 	return osiris_starlist
 
 
-def reference_section_plots(refTable_b):
+def reference_section_plots(refTable_b,refTable_current):
 	plt.figure(num=1,figsize=(6,6),clear=True)
 	ptsize = 5
 	os.makedirs('{}combined_ref'.format(plot_dir),exist_ok=True)
@@ -1517,7 +1508,7 @@ def reference_section_plots(refTable_b):
 	plt.ylabel('relative Dec (arcsec)')
 	# plt.axis('equal')
 	# plt.set_aspect('equal','box')
-	plt.title('Distortion residuals_a it:{}'.format(ref_iteration))
+	plt.title('Distortion residuals_r it:{}'.format(ref_iteration))
 	plt.savefig('{}residual_A/residual_quiver_{}.jpg'.format(plot_dir,ref_iteration), bbox_inches='tight',dpi=200)
 
 
@@ -1533,20 +1524,22 @@ def calculate_PCU_guess(starlist_filename,night):
 	if config['instrument'] == 'OSIRIS':
 		flip_filename = starlist_filename[:-10] + '.fits'
 		hdr = fits.getheader(config[night]['fits_dir']+flip_filename,ignore_missing_simple=True)
-		# pcu_x = float(hdr[pcu_x_keyword])   #these keywords may change
-		# pcu_y = float(hdr[pcu_y_keyword])
-		# pcu_r = hdr[pcu_r_keyword]
-		# pcu_r = 65.703
-		log = ascii.read(config[night]['log_file'],format='basic')
-		raw_filename = flip_filename[:-10] + '.fits'
-		mask = log['Filename'] == raw_filename
-		pcu_params = log[mask]
+		
+		if pcu_r_keyword not in hdr.keys:
+			log = ascii.read(config[night]['log_file'],format='basic')
+			raw_filename = flip_filename[:-10] + '.fits'
+			mask = log['Filename'] == raw_filename
+			pcu_params = log[mask]			
+			hdr[pcu_x_keyword] = pcu_params['x']
+			hdr[pcu_y_keyword] = pcu_params['y']
+			hdr[pcu_z_keyword] = pcu_params['z']
+			hdr[pcu_r_keyword] = pcu_params['r']
 
-		pcu_x = pcu_params['x']
-		pcu_y = pcu_params['y']
-		pcu_z = pcu_params['z']
-		pcu_r = pcu_params['r']
-		# print(pcu_x,pcu_y,pcu_r)
+		pcu_x = float(hdr[pcu_x_keyword])   
+		pcu_y = float(hdr[pcu_y_keyword])
+		pcu_z = float(hdr[pcu_z_keyword])
+		pcu_r = float(hdr[pcu_r_keyword])
+		# pcu_r = 65.703
 
 		#four parameter transformation.
 		# x' = a0 + a1*x + a2*y
@@ -1598,7 +1591,8 @@ def calculate_PCU_guess(starlist_filename,night):
 
 
 		#------forward transform: pixels to arcseconds------
-		S = 0.0099576 #arcseconds per pixel
+		# S = 0.0099576 #arcseconds per pixel
+		S = kai_instrument.get_plate_scale(hdr) #arcseconds per pixel
 		pinhole_scale = 138.5 # pixels per mm
 		front_focus_scale = S*pinhole_scale #arcsec per mm
 		theta_offset = 65.703   #this is some offset in degrees between the reported PCU rotation and the orientation we want.
