@@ -93,13 +93,13 @@ import numpy as np
 import math
 import datetime
 import copy
+import sys
 
 parser = argparse.ArgumentParser()
 parser.add_argument("-c", "--config", required = True, help = "Configuration file")
 # parser.add_argument("-o", "--output", required = True, help = "Output folder")
 args = parser.parse_args()
 print("Config file is: {}".format(args.config))
-
 with open(args.config, "r") as ymlfile:
 	config = yaml.safe_load(ymlfile)
 
@@ -108,9 +108,7 @@ print("Output folder is : {}".format(config['output_dir']))
 plot_dir = config['output_dir'] + 'plots/'
 os.makedirs(config['output_dir'],exist_ok=True)
 os.makedirs(plot_dir,exist_ok=True)
-
 refTable_current_filename = '{}refTable_current.pickle'.format(config['output_dir'])  #filename to save the refTable pickle
-
 if config['instrument'] == 'OSIRIS':
 	kai_instrument = instruments.OSIRIS()
 	frame_size = [2048,2048] #could read out hdr['NAXIS1'] and hdr['NAXIS2']
@@ -118,7 +116,6 @@ else:
 	print('Need to add a frame_size for {}'.format(config['instrument']))
 frame_centre = [frame_size[0]/2,frame_size[1]/2]  
 trim_not_used_in_trans=False
-
 pcu_x_keyword = 'PCSFX'
 pcu_y_keyword = 'PCSFY'
 pcu_z_keyword = 'PCUZ'
@@ -128,31 +125,17 @@ def main():
 	refTable_current = {}	#holds most recent refTable for each night #this is the reference table that keeps getting updated by the reference section.
 	results = {}
 	# old_distortion_model = None 
-	distortion_model = distortion_from_coefficients(some_filename) #load old distortion model
-	inverse_distortion_model = distortion_from_coefficients(inverse_some_filename)
-	if config['generate_reference_frame']:
+	distortion_model = distortion_from_coefficients(config['previous_distortion_dir']+config['previous_distortion_model']) #load old distortion model
+	inverse_distortion_model = distortion_from_coefficients(config['previous_distortion_dir']+'inverse_'+config['previous_distortion_model'])
+	if config['ref_iterations'] > 0:
 		for ref_iteration in range(config['ref_iterations']):
 			print('\n \n Ref Iteration {} \n'.format(ref_iteration))
-			distortion_model, inverse_distortion_model refTable_current = distortion_section(refTable_current, ref_iteration,results,distortion_model,inverse_distortion_model)
+			distortion_model, inverse_distortion_model, refTable_current = distortion_section(refTable_current, ref_iteration,results,distortion_model,inverse_distortion_model)
 			new_refTable = reference_section(refTable_current,distortion_model,ref_iteration,results)
 			refTable_current = new_refTable
 	else:
-		distortion_model,inverse_distortion_model = distortion_section(refTable_current,0,results,distortion_model)
+		distortion_model,inverse_distortion_model, refTable_current = distortion_section(refTable_current,0,results,distortion_model,inverse_distortion_model)
 		#outputs are printed to files.
-
-
-	# print('Completed ref_iterations')
-	# print('Median residuals_b for each ref_iteration')
-	# print(results['median_residuals'])
-	# print('Max residuals_b for each ref_iteration')
-	# print(results['max_residuals'])
-	# print('Min residuals_b for each ref_iteration')
-	# print(results['min_residuals'])
-	# print('Number of residuals_b for each ref_iteration')
-	# print(results['num_residuals'])
-	# print('Weighted mean residuals_b for each ref_iteration')
-	# print(results['mean_residuals'])
-
 	return distortion_model
 
 def distortion_section(refTable_current,ref_iteration,results,current_distortion_correction=None,inverse_distortion_correction=None):
@@ -170,7 +153,7 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 	#if I am loading dist files then tab1_intial can break if a set of fp_iterations was incomplete - it won't run the first iteration to generate tab1_initial. Need to save as a file?
 	for fp_iteration in range(config['fp_iterations']):
 
-		matched_star_table_name = '{}dist_measures_{}_{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration)
+		matched_star_table_name = '{}dist_measures_r{}_f{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration)
 		matched_star_table = {}   #matched star lists from each image are all appended to this dictionary. Should be an astropy table? Lots of appending lists. Convert later?
 		plate_scale_and_rotations = {}
 
@@ -180,17 +163,17 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 
 			#-------------------------Night loop starts here-------------------------------
 			for night in config['nights']:
-				hubbleData = fetch_reference(night)
+				reference_data = fetch_reference(night)
 				osiris_filenames = get_image_filenames(config[night]['starlist_dir'],config[night]['slice'])
 				failed_images = []
 				successful_images = []
 				if night not in refTable_current.keys():  #if we have not generated a new reference frame, load the starting one.
 					if config['use_flystar_velocity']:   #if True, use flystar to project positions. If False, manually project positions.
-						refTable_H = prepare_ref_for_flystar(hubbleData,config[night]['target_RA'],config[night]['target_DEC'],config[night]['target'],config[night]['ref_instrument'])
+						refTable_H = prepare_ref_for_flystar(reference_data,config[night]['target_RA'],config[night]['target_DEC'],config[night]['target'],config[night]['ref_instrument'])
 					else:
 						starlist0 = load_osiris_file(config[night]['starlist_dir'] ,osiris_filenames[0]) #load 1 file to get the epoch.
-						hubbleData_p = project_pos(hubbleData,starlist0,config[night]['ref_instrument'],config[night]['target'])
-						refTable_H = prepare_ref_for_flystar(hubbleData_p,config[night]['target_RA'],config[night]['target_DEC'],config[night]['target'],config[night]['ref_instrument'])
+						reference_data_p = project_pos(reference_data,starlist0,config[night]['ref_instrument'],config[night]['target'])
+						refTable_H = prepare_ref_for_flystar(reference_data_p,config[night]['target_RA'],config[night]['target_DEC'],config[night]['target'],config[night]['ref_instrument'])
 					
 					refTable_current[night] = refTable_H.filled() #is this necessary?
 					with open(refTable_current_filename, 'wb') as temp:
@@ -210,7 +193,6 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 						#fitsfile = config[night]['fits_dir'] + filename[:-12] + '.fits'     #for _0.8_stf.lis files
 					else:
 						print('Need to add filename conventions for {}'.format(config['instrument']))
-
 
 					PA = get_PA(config[night]['fits_dir']+fitsfile)
 					# starlist = brightest_n(starlist,170)
@@ -232,7 +214,7 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 
 					try:
 
-						transformation_guess_file = '{}tform_{}_{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)
+						transformation_guess_file = '{}tform_r{}_f{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)
 
 						if os.path.exists(transformation_guess_file):
 							print('Loading transform guess')
@@ -246,10 +228,11 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 								print('Not loading transform guess')
 								transformation_guess = None
 
+						# transformation_guess = calculate_PCU_guess(filename,night)							
 
 						starlist_corrected = starlist[:]
 						# if fp_iteration > 0:
-						if current_distortion_correction is not None:    #either this check, or the fp_iteration check.
+						if (current_distortion_correction is not None) and (inverse_distortion_correction is not None):    #either this check, or the fp_iteration check.
 							xt, yt = current_distortion_correction.evaluate(starlist_corrected['x'],starlist_corrected['y'])
 							starlist_corrected['x'] = xt 
 							starlist_corrected['y'] = yt 
@@ -270,7 +253,7 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 							    mag_lim=config[night]['mag_limits'], #[6,16],
 							    weights='both,std',
 							    calc_trans_inverse=True,    
-							    init_guess_mode='miracle', verbose=6)
+							    init_guess_mode='miracle', verbose=0) #6
 							msc.fit()
 							# tab1 = msc.ref_table
 							tform = msc.trans_list
@@ -283,7 +266,7 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 							
 							j = 0
 							tab1 = msc.ref_table
-							if inverse_distortion_correction is not None:
+							if (current_distortion_correction is not None) and (inverse_distortion_correction is not None):
 								tab1['x_orig'][:,j], tab1['y_orig'][:,j] = inverse_distortion_correction.evaluate(tab1['x_orig'][:,j], tab1['y_orig'][:,j])
 	
 							#
@@ -324,9 +307,9 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 						Raref = tab1['x0'][ref_idx]
 						Decref = tab1['y0'][ref_idx]						
 						xref, yref = tform_inv[j].evaluate(Raref,Decref)						
-						plot_scatter(starlist_corrected['x'],starlist_corrected['y'], fitsfile,'{}{}_scatter_{}/'.format(plot_dir,night,ref_iteration),night,fp_iteration)
-						plot_matched(x,y,xref,yref, fitsfile,'{}{}_matched_{}/'.format(plot_dir,night,ref_iteration),tab1['use_in_trans'][ref_idx],night,fp_iteration)
-						plot_quiver(x,y,xref,yref,fitsfile,'{}{}_quiver_{}/'.format(plot_dir,night,ref_iteration),tab1['use_in_trans'][ref_idx],night,fp_iteration)
+						plot_scatter(starlist_corrected['x'],starlist_corrected['y'], fitsfile,'{}{}_scatter/'.format(plot_dir,night),night,fp_iteration,ref_iteration)
+						plot_matched(x,y,xref,yref, fitsfile,'{}{}_matched/'.format(plot_dir,night),tab1['use_in_trans'][ref_idx],night,fp_iteration,ref_iteration)
+						plot_quiver(x,y,xref,yref,fitsfile,'{}{}_quiver/'.format(plot_dir,night),tab1['use_in_trans'][ref_idx],night,fp_iteration,ref_iteration)
 					
 					except AssertionError as err:
 						print(filename[:-4], 'Assertion error:')
@@ -359,7 +342,7 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 
 				plate_scale_and_rotations['Difference'] = np.array(plate_scale_and_rotations['Rotation']) - np.array(plate_scale_and_rotations['PA'])
 				transform_table = Table(plate_scale_and_rotations)
-				ascii.write(transform_table,'{}t_params_{}_{}.txt'.format(config['output_dir'],ref_iteration,night),format='fixed_width', overwrite=True)
+				ascii.write(transform_table,'{}t_params_{}_r{}.txt'.format(config['output_dir'],night,ref_iteration),format='fixed_width', overwrite=True) #may be inaccurate when using PCU
 				# print('Mean scale =', np.mean(scales))
 				# print('Mean rotation offset =', np.mean(plate_scale_and_rotations['Difference']))
 				
@@ -401,37 +384,26 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 																			distortion_data['y_REF'][include], 
 																			config['legendre_order'], m=None, mref=None,init_gx=None, init_gy=None, weights=None, mag_trans=True
 																			) # Defines a bivariate legendre tranformation from x,y -> xref,yref using Legnedre polynomials as the basis.
-
-
-
-		distortion_plot_print_save(distortion_data,include,legendre_transformation,inverse_legendre_transformation,fp_iteration,ref_iteration,results)
-
 		x_coefficient_names = []
 		x_coefficient_values = []
 		y_coefficient_names = []
 		y_coefficient_values = []
-
 		for param in legendre_transformation.px.param_names:
 			# print(getattr(legendre_transformation.px, param))
 			a = getattr(legendre_transformation.px, param)
 			x_coefficient_names.append(a.name)
 			x_coefficient_values.append(a.value)
-
 		for param in legendre_transformation.py.param_names:
 			a = getattr(legendre_transformation.py, param)
 			y_coefficient_names.append(a.name)
 			y_coefficient_values.append(a.value)
-
 		output_table = Table([x_coefficient_names,x_coefficient_values, y_coefficient_names,y_coefficient_values], names = ('px_name','px_val','py_name','py_val'),)
-		ascii.write(output_table,'{}distortion_coefficients_{}_{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration),format='fixed_width', overwrite=True)
-
-
+		ascii.write(output_table,'{}distortion_coefficients_r{}_f{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration),format='fixed_width', overwrite=True)
 
 
 		inverse_legendre_transformation = transforms.LegTransform.derive_transform(distortion_data['x_REF'][include], distortion_data['y_REF'][include], distortion_data['x_IM'][include], distortion_data['y_IM'][include], 
 																			config['legendre_order'], m=None, mref=None,init_gx=None, init_gy=None, weights=None, mag_trans=True
 																			) #The inverse of the distortion correction: adds distortion to an undistorted image.
-
 		x_coefficient_names = []
 		x_coefficient_values = []
 		y_coefficient_names = []
@@ -445,7 +417,10 @@ def distortion_section(refTable_current,ref_iteration,results,current_distortion
 			y_coefficient_names.append(a.name)
 			y_coefficient_values.append(a.value)
 		output_table = Table([x_coefficient_names,x_coefficient_values, y_coefficient_names,y_coefficient_values], names = ('px_name','px_val','py_name','py_val'),)
-		ascii.write(output_table,'{}inverse_distortion_coefficients_{}_{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration),format='fixed_width', overwrite=True)
+		ascii.write(output_table,'{}inverse_distortion_coefficients_r{}_f{}.txt'.format(config['output_dir'],ref_iteration,fp_iteration),format='fixed_width', overwrite=True)
+
+		distortion_plot_print_save(distortion_data,include,legendre_transformation,inverse_legendre_transformation,fp_iteration,ref_iteration,results)
+
 
 	return legendre_transformation, inverse_legendre_transformation, refTable_current #returns the final distortion correction
 
@@ -471,7 +446,7 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 		#make a function to choose the ref file? It's just checking if there's a previous one, can probably do one step.
 
 		# combined_ref_filename = config['output_dir'] + 'combined_ref_table_' + str(ref_iteration) + '.txt'
-		combined_ref_filename = '{}combined_ref_table_{}_{}.pickle'.format(config['output_dir'],night,ref_iteration)
+		combined_ref_filename = '{}combined_ref_table_{}_r{}.pickle'.format(config['output_dir'],night,ref_iteration)
 		failed_images = []
 		successful_images = []
 
@@ -486,8 +461,17 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 					# failed_images.append(filename[:-4])
 				print('{} {} applying distortion correction'.format(i,filename))
 				
-				fitsfile = config[night]['fits_dir'] + filename[:-12] + '.fits'
-				PA = get_PA(config[night]['fits_dir'] +fitsfile)
+				if config['instrument'] == 'OSIRIS':
+					fitsfile = filename[:-10] + '.fits'     #for _stars.txt files
+					#This fuction finds the fits file name by replacing _stars.txt with .fits
+					#It assumes that the fits file names look like i230413_a003004_flip.fits and that the star_list file names look like i230413_a003004_flip_stars.txt
+					#KAI output files may look like may look like ci211024_a005002_flip_0.8_stf.lis, use this:					
+					#fitsfile = config[night]['fits_dir'] + filename[:-12] + '.fits'     #for _0.8_stf.lis files
+				else:
+					print('Need to add filename conventions for {}'.format(config['instrument']))
+
+				# fitsfile = config[night]['fits_dir'] + filename[:-12] + '.fits'
+				PA = get_PA(config[night]['fits_dir']+fitsfile)
 				starlist = load_osiris_file(config[night]['starlist_dir'] ,filename)
 				# starlist = brightest_n(starlist,170)
 				starlist = mag_cut(starlist,config[night]['mag_limits'][0],config[night]['mag_limits'][1])
@@ -503,7 +487,7 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 
 				xt, yt = distortion_model.evaluate(starlist['x'],starlist['y'])    #apply distortion correction
 
-				if config[night]['centred']:
+				if config['centred']:
 					xc, yc = distortion_model.evaluate(frame_centre[0],frame_centre[1])
 					xc -= frame_centre[0]
 					yc -= frame_centre[1]						
@@ -525,10 +509,11 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 			print('Completed applying distortion corrections')
 
 			# The transformation for each starlist is saved to this file, and can be loaded as an initial guess.
-			reference_transformation_guess_file = '{}combining_ref/tform_{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,night)
+			reference_transformation_guess_file = '{}reference_section/tform_{}_r{}.pickle'.format(config[night]['tform_dir'],night,ref_iteration)
+			os.makedirs('{}reference_section/'.format(config[night]['tform_dir']),exist_ok=True)
 
 			# If we don't have the above file, we can use all the individual transformations from the distortion section as a guess.
-			transformation_guess_file_list = ['{}tform_{}_{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,int(config['fp_iterations']-1),i) for i in osiris_filenames]
+			transformation_guess_file_list = ['{}tform_r{}_f{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,int(config['fp_iterations']-1),i) for i in osiris_filenames]
 			# transformation_guess_file = '{}tform_{}_{}_{}.pickle'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)
 
 			use_individual_trans_guesses = False
@@ -547,7 +532,7 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 
 			if use_individual_trans_guesses:
 				print('Loading old transform')
-				if os.path.exists(transformation_guess_file_list[0]):
+				if  all([os.path.exists(f) for f in transformation_guess_file_list]):
 					reference_transformation_guess = []
 					for i, tform_filename in enumerate(transformation_guess_file_list):
 						with open(tform_filename, 'rb') as trans_file:
@@ -586,7 +571,7 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 			msc.fit()
 			# tab2 = msc.ref_table
 			with open(reference_transformation_guess_file, 'wb') as temp:
-				pickle.dump(msc.reference_transformation_guess, temp)
+				pickle.dump(msc.trans_list, temp)
 			print('Completed reference table matching')
 			# refTable_a = msc.ref_table
 			with open(combined_ref_filename, 'wb') as temp:
@@ -634,7 +619,7 @@ def reference_section(refTable_current,distortion_model,ref_iteration,results):
 
 		residuals_r = np.hypot(refTable_current[night]['x0'][idx2]-refTable_b['x0'][idx1],refTable_current[night]['y0'][idx2]-refTable_b['y0'][idx1])
 		results.setdefault('mean_residuals_r',[]).append(np.mean(residuals_r))
-		print('All ref_iteration mean residuals_r = {}'.format(results['mean_residuals_r']))
+		print('ref_iteration {} mean residuals_r = {}'.format(ref_iteration,results['mean_residuals_r']))
 
 		refTable_current[night] = Table(refTable_b,copy=True)
 
@@ -765,7 +750,8 @@ def fetch_reference(night):				#loads hubble data from hst1pass
 	elif config[night]['ref_instrument'] == 'PCU':
 		ref_table = ascii.read(config[night]['reference_file'],format='fixed_width')
 	else:
-		print("ref_instrument {} not supported. Must be 'PCU' or 'Hubble'".format(config[night]['ref_instrument']))
+		print("ref_instrument {} not supported for fetch_reference. Must be 'PCU' or 'Hubble'".format(config[night]['ref_instrument']))
+		sys.exit(0)
 
 	return ref_table
 
@@ -914,6 +900,7 @@ def prepare_ref_for_flystar(ref, ra, dec, target, instrument, targets_dict=None,
 
 	else:
 		print("Instrument {} not recognized, must be 'PCU' or 'Hubble'".format(instrument))
+		sys.exit(0)
 
 
 def get_image_filenames(directory,file_slice):
@@ -960,39 +947,39 @@ def project_pos(refData_o, starlist,ref_instrument,target):
 	elif ref_instrument == 'PCU':
 		print("Don't need to project PCU reference epoch")
 	else:	 
-		print('ref_instrument should be PCU, Hubble, or Gaia'.format(ref_instrument))
+		print('Need projection calculation for {}'.format(ref_instrument))
 	return refData	
 
 
-def load_transformation_guess():
-	if reference_instrument == 'Hubble':
-		tform_file_1 = '{}tform_{}_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)	#don't need to enter the night, because the filename includes the date and so is unique
-		tform_file_2 = '{}tform_{}_{}.p'.format(transform_files_location,ref_iteration,filename)
-		tform_file_3 = '/u/mfreeman/work/d/transform_files/hubble/tform_{}.p'.format(filename)
+# def load_transformation_guess():
+# 	if reference_instrument == 'Hubble':
+# 		tform_file_1 = '{}tform_{}_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename)	#don't need to enter the night, because the filename includes the date and so is unique
+# 		tform_file_2 = '{}tform_{}_{}.p'.format(transform_files_location,ref_iteration,filename)
+# 		tform_file_3 = '/u/mfreeman/work/d/transform_files/hubble/tform_{}.p'.format(filename)
 
-	elif reference_instrument == 'GAIA':
-		#out of date
-		tform_file_1 = '{}tform_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,filename)
-		tform_file_2 = '{}tform_{}_{}.p'.format(transform_files_location,fitmode,ref_iteration,filename)
-		tform_file_3 = '/u/mfreeman/work/d/transform_files/gaia/tform_{}.p'.format(filename)
+# 	elif reference_instrument == 'GAIA':
+# 		#out of date
+# 		tform_file_1 = '{}tform_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,filename)
+# 		tform_file_2 = '{}tform_{}_{}.p'.format(transform_files_location,fitmode,ref_iteration,filename)
+# 		tform_file_3 = '/u/mfreeman/work/d/transform_files/gaia/tform_{}.p'.format(filename)
 
-	if os.path.exists(tform_file_1):
-		print('Loading correct transform guess')
-		with open(tform_file_1, 'rb') as trans_file:
-			trans_list = pickle.load(trans_file) 					#initial guess for the transformation
-	elif os.path.exists(tform_file_2):
-		print('Loading default transform guess')
-		with open(tform_file_2, 'rb') as trans_file:
-			trans_list = pickle.load(trans_file)
-	elif os.path.exists(tform_file_3):
-		print('Loading old transform guess')
-		with open(tform_file_3, 'rb') as trans_file:
-			trans_list = pickle.load(trans_file)
-	else:
-		# trans_list = last_good_transform
-		print('Not loading transform guess')
-		trans_list = None	
-	return trans_list
+# 	if os.path.exists(tform_file_1):
+# 		print('Loading correct transform guess')
+# 		with open(tform_file_1, 'rb') as trans_file:
+# 			trans_list = pickle.load(trans_file) 					#initial guess for the transformation
+# 	elif os.path.exists(tform_file_2):
+# 		print('Loading default transform guess')
+# 		with open(tform_file_2, 'rb') as trans_file:
+# 			trans_list = pickle.load(trans_file)
+# 	elif os.path.exists(tform_file_3):
+# 		print('Loading old transform guess')
+# 		with open(tform_file_3, 'rb') as trans_file:
+# 			trans_list = pickle.load(trans_file)
+# 	else:
+# 		# trans_list = last_good_transform
+# 		print('Not loading transform guess')
+# 		trans_list = None	
+# 	return trans_list
 
 
 def append_to_matched_star_table(matched_star_table,tab1,ref_idx,tform,tform_inv,night,i):
@@ -1131,6 +1118,7 @@ def distortion_plot_print_save(distortion_data,include,legendre_transformation,i
 			# temp.write(str(resid) + '\n')
 			temp.write(f"Min:{results['min_residuals'][r]:.5f}  Median:{results['median_residuals'][r]:.5f}  Max:{results['max_residuals'][r]:.5f}  Num:{results['num_residuals'][r]:.5f}  Weighted mean:{results['mean_residuals'][r]:.5f}  \n") #Weighted mean squared:{results['mean_residuals_squared'][r]:.5f} Mean_a:{results['mean_residuals_r'][r]:.5f} Median_mas:{results['median_residuals_radec'][r]:.7f} 
 
+	print('Ref iteration {} results:'.format(ref_iteration))
 	print('Median residual = {}'.format(np.median(residuals[include])))
 	print('Weighted mean residual = {}'.format(weighted_mean_residual))
 	print('All ref_iteration median residuals = {}'.format(results['median_residuals']))
@@ -1208,240 +1196,6 @@ def distortion_plot_print_save(distortion_data,include,legendre_transformation,i
 	# plt.show()
 
 
-	#-------------------plotting quivers in RA Dec ------------------- 
-
-
-	# for night in config['nights']:
-	# 	# plt.figure(num=1,figsize=(6,6),clear=True)
-	# 	# plt.clf()
-	# 	# plt.figure(num=2,figsize=(6,6),clear=True)
-	# 	# plt.clf()
-	# 	quiv_scale= 0.05
-	# 	quiv_label_val = 0.001
-	# 	quiv_label = '{} mas'.format(quiv_label_val*1000)
-
-	# 	os.makedirs('{}sky_resid_b_individual/{}/{}/{}'.format(plot_dir,ref_iteration,night,fp_iteration),exist_ok=True)
-	# 	osiris_filenames = get_image_filenames(config[night]['starlist_dir'],config[night]['slice'])
-	# 	for f, filename_1 in enumerate(osiris_filenames):
-	# 		# tform_file_4p = './transform_files/hubble/tform_{}_{}.p'.format(ref_iteration,filename_1)
-	# 		# tform_file_4p = '{}tform_{}_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename_1)
-	# 		transformation_guess_file = '{}tform_{}_{}_{}.p'.format(config[night]['tform_dir'],ref_iteration,fp_iteration,filename_1)
-	# 		with open(transformation_guess_file, 'rb') as trans_file:
-	# 			transform_4p = pickle.load(trans_file) 	
-
-	# 		# idx = np.where(frame[include] == f)[0]
-	# 		idx = np.where((frame[include] == f) & (night_c[include] == night))[0]
-	# 		# RA_ref, Dec_ref = transform_4p[0].evaluate(xref[include][idx],yref[include][idx])	#transform pixel coordinates to RA/Dec
-	# 		# RA_xtf, Dec_ytf = transform_4p[0].evaluate(xtf[include][idx],ytf[include][idx])  #distortion corrected, converted to RA/Dec
-
-	# 		RA_ref = raref[include][idx]	#instead of applying the inverse transformation then the transformation, just use the orignal ref coords. Not Centred
-	# 		Dec_ref = decref[include][idx]
-	# 		RA_xtf, Dec_ytf = transform_4p[0].evaluate(xtf[include][idx]+ x_central,ytf[include][idx]+y_central) #not centred
-	# 		xtf_ra.extend(RA_xtf)
-	# 		ytf_dec.extend(Dec_ytf)
-
-	# 		# print(f'idx = {idx}')
-	# 		angle_colour = np.arctan2(Dec_ref-Dec_ytf, RA_ref-RA_xtf)
-	# 		# norm = Normalize(vmin=0,vmax=2*math.pi)
-	# 		# norm.autoscale(angle_colour)
-	# 		# colourmap = 'hsv'
-	# 		# q = plt.quiver(RA_xtf,Dec_ytf,(RA_ref-RA_xtf),(Dec_ref-Dec_ytf),angle_colour, norm=Normalize(vmin=-math.pi,vmax=math.pi), cmap='hsv', scale=quiv_scale, angles='xy',width=0.002)	#from corrected to ref
-	# 		plt.figure(num=2,figsize=(6,6),clear=False)
-	# 		q = plt.quiver(RA_ref,Dec_ref,(-RA_ref+RA_xtf),(-Dec_ref+Dec_ytf),angle_colour, norm=Normalize(vmin=-math.pi,vmax=math.pi), cmap='hsv', scale=quiv_scale, angles='xy',width=0.002)  #from ref to corrected
-			
-	# 		plt.figure(num=1,figsize=(6,6),clear=True)
-	# 		# plt.clf()
-	# 		# q = plt.quiver(RA_xtf,Dec_ytf,(RA_ref-RA_xtf),(Dec_ref-Dec_ytf),angle_colour, norm=Normalize(vmin=-math.pi,vmax=math.pi), cmap='hsv', scale=quiv_scale, angles='xy',width=0.002)
-	# 		q = plt.quiver(RA_ref,Dec_ref,(-RA_ref+RA_xtf),(-Dec_ref+Dec_ytf),angle_colour, norm=Normalize(vmin=-math.pi,vmax=math.pi), cmap='hsv', scale=quiv_scale, angles='xy',width=0.002)
-	# 		plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label, coordinates='figure', labelpos='E', color='green')
-	# 		plt.xlim(-20,20)
-	# 		plt.ylim(-20,20)
-	# 		plt.xlabel('RA (arcsec)')
-	# 		plt.ylabel('Dec (arcsec)')
-	# 		plt.title('Sky Distortion residuals_b {} {}'.format(ref_iteration,f))
-	# 		plt.savefig('{}sky_resid_b_individual/{}/{}/{}/residual_b_quiver_{}_{}_{}_{}.pdf'.format(plot_dir,ref_iteration,night,fp_iteration,ref_iteration,night,fp_iteration,f), bbox_inches='tight',dpi=200)
-	# 		# q = plt.quiver(xtf[outliers],ytf[outliers],(xref[outliers]-xtf[outliers]),(yref[outliers]-ytf[outliers]), color='red', scale=quiv_scale, angles='xy',width=0.0005)
-
-	# 	plt.figure(num=2,figsize=(6,6),clear=False)
-	# 	plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label, coordinates='figure', labelpos='E', color='green')
-	# 	plt.xlim(-20,20)
-	# 	plt.ylim(-20,20)
-	# 	plt.xlabel('RA (arcsec)')
-	# 	plt.ylabel('Dec (arcsec)')
-	# 	plt.title('Sky Distortion residuals_b {}'.format(ref_iteration))
-	# 	os.makedirs('{}sky_resid_b/{}/{}/'.format(plot_dir,ref_iteration,night),exist_ok=True)
-	# 	plt.savefig('{}sky_resid_b/{}/{}/residual_b_quiver_{}_{}_{}.pdf'.format(plot_dir,ref_iteration,night,ref_iteration,night,fp_iteration), bbox_inches='tight',dpi=200)
-	# plt.close('all')
-
-	#-------------------------------------------------------------
-	#------------------Plot quivers in pixels--------------------
-
-
-
-	# for night in config['nights']:
-	# #plot individual frame residuals
-	# 	os.makedirs('{}resid_b_individual/{}/{}/{}'.format(plot_dir,ref_iteration,night,fp_iteration),exist_ok=True)
-	# 	for f in range(max(frame)):
-	# 		# idx = np.where(frame[include] == f)[0]
-	# 		idx = np.where((frame[include] == f) & (night_c[include] == night))[0]
-	# 		plt.figure(num=1,figsize=(6,6),clear=True)
-	# 		quiv_scale=20
-	# 		quiv_label_val = 1
-	# 		quiv_label = '{} pix'.format(quiv_label_val)
-	# 		# print(f'idx = {idx}')
-	# 		angle_colour = np.arctan2(yref[include][idx]-ytf[include][idx], xref[include][idx]-xtf[include][idx])
-	# 		# norm = Normalize(vmin=0,vmax=2*math.pi)
-	# 		# norm.autoscale(angle_colour)
-	# 		# colourmap = 'hsv'
-	# 		q = plt.quiver(xtf[include][idx],ytf[include][idx],(xref[include][idx]-xtf[include][idx]),(yref[include][idx]-ytf[include][idx]),angle_colour, norm=Normalize(vmin=-math.pi,vmax=math.pi), cmap='hsv', scale=quiv_scale, angles='xy',width=0.002)
-	# 		# q = plt.quiver(xtf[outliers],ytf[outliers],(xref[outliers]-xtf[outliers]),(yref[outliers]-ytf[outliers]), color='red', scale=quiv_scale, angles='xy',width=0.0005)
-	# 		plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label, coordinates='figure', labelpos='E', color='green')
-	# 		plt.xlim(-400,2448)
-	# 		plt.ylim(-400,2448)
-	# 		plt.xlabel('Pixels')
-	# 		plt.ylabel('Pixels')
-	# 		# plt.axis('equal')
-	# 		# plt.set_aspect('equal','box')
-	# 		plt.title('Distortion residuals_b {} {}'.format(ref_iteration, f))
-	# 		plt.savefig('{}resid_b_individual/{}/{}/{}/residual_b_quiver_{}_{}_{}.pdf'.format(plot_dir,ref_iteration,night,fp_iteration,night,ref_iteration,f), bbox_inches='tight',dpi=200)
-
-
-		#-----------------------------------
-
-	# plt.close('all')
-
-	# xtf_ra = np.array(xtf_ra)		#distortion corrected observations transformed into RA Dec coordinates [include] (not centred)
-	# ytf_dec = np.array(ytf_dec)
-
-	# residuals_b_radec = np.hypot(raref[include]-xtf_ra, decref[include]-ytf_dec)
-	# median_4p_residual_radec = np.median(residuals_b_radec)
-
-	# residuals_b = np.hypot(xref-xtf,yref-ytf)     #distance from reference to transformed
-	# median_4p_residual = np.median(residuals_b[include])
-
-	# print(f'Ref_Iteration:{ref_iteration} fp_iteration:{fp_iteration} Median_residual:{median_4p_residual:.5f}')
-	# with open('{}fp_iteration_residuals.txt'.format(config['output_dir']), 'a') as temp:
-	# 		temp.write(f'Ref_Iteration:{ref_iteration} fp_iteration:{fp_iteration} Median_residual_pix:{median_4p_residual:.5f}\n')
-
-
-
-
-	# return legendre_transformation ???
-	#------------------------fp_iteration ends here---------------------------
-
-
-	#need some parameters back here. current_distortion_solution and a bunch of parameters
-
-	# if config['centred']:
-	# 	xref = xref + x_central 		# x_ref is already centred, so un-centre it.
-	# 	yref = yref + y_central			
-	# 	xc, yc = legendre_transformation.evaluate(frame_centre[0],frame_centre[1])
-	# 	xc -= frame_centre[0]
-	# 	yc -= frame_centre[1]
-	# else:
-	# 	xc = 0
-	# 	yc = 0
-
-	# grid = np.arange(0,2048+1,64)
-	
-	# xx, yy = np.meshgrid(grid, grid)
-	# x2,y2 = legendre_transformation.evaluate(xx,yy)
-	# x1 = xx.flatten()
-	# y1 = yy.flatten()
-	# x2 = x2.flatten()
-	# y2 = y2.flatten()
-
-	# dr = np.sqrt((x2-x1)**2 + (y2-y1)**2)
-	# print("Mean distortion before shift", np.mean(dr))
-
-	# a,b = legendre_transformation.evaluate(frame_centre[0],frame_centre[1])
-	# x_central = a-frame_centre[0]
-	# y_central = b-frame_centre[1]
-
-	# x2_c = x2 - x_central
-	# y2_c = y2 - y_central
-
-	# dr = np.sqrt((x2_c-x1)**2 + (y2_c-y1)**2)
-	# print("Mean distortion after shift", np.mean(dr))
-
-	# xtf, ytf = legendre_transformation.evaluate(x,y)
-
-	# distances2 = (xref-xtf)**2 + (yref-ytf)**2
-	# distances_ref = np.hypot(xref-x,yref-y)   #distance from OSIRIS original to reference.
-	# distances_tr = np.hypot(xtf-x,ytf-y)   #distance from OSIRIS original to transformed.
-	# unexplained_error = np.sqrt(unexplained_x_error**2 + unexplained_y_error**2)
-	# # unexplained_error = 0
-	# variances = 1/weights**2 + unexplained_error**2
-	# weights = 1/np.sqrt(variances)
-	# residuals_b_std = np.hypot((xtf-xref),(ytf-yref))*weights*0.01    #hoping that the units are wrong     10 mas per pixel.    0.01 arcsec per pixel
-
-	# #xe*0.01 to get it into arcseconds? 
-	# #* 0.01 to get it into pixels
-	# residuals_b_x = (xtf-xref) / np.sqrt((xe*0.01)**2 + xeref**2 + unexplained_x_error**2) *0.01    #np.hypot(xe,xeref)
-	# residuals_b_y = (ytf-yref) / np.sqrt((ye*0.01)**2 + yeref**2 + unexplained_y_error**2) *0.01    #np.hypot(ye,yeref)
-
-	# weighted_mean_residual_b = np.average(residuals_b[include], weights = weights[include])
-	# weighted_mean_residual_b_squared = np.sqrt(np.average(residuals_b[include]**2, weights = weights[include]))
-
-	# print('min,median,max residuals:',np.min(residuals_b[include]),np.median(residuals_b[include]),np.max(residuals_b[include]))
-	# print('min,median,max uncertainties:',np.min(1/weights[include]),np.median(1/weights[include]),np.max(1/weights[include]))
-	# print('weighted mean residual_b: {}'.format(weighted_mean_residual_b))
-	# print('weighted mean residual_b squared: {}'.format(weighted_mean_residual_b_squared))
-
-	# bad_a = np.nonzero(residuals_b > 22)
-	# outliers = ~include 				#unneeded?
-	# bad_o = np.nonzero(outliers)
-	# # print(bad_a)
-	# # print(bad_o)																		#manually finding outliers by their residuals
-	# print('Residual_b > 22, not caught as outliers:', np.setdiff1d(bad_a, bad_o, assume_unique=True))
-	# # quit()
-
-	# #----------------------------------
-
-
-	# results.setdefault('median_residuals_b',[]).append(median_4p_residual)
-	# results.setdefault('mean_residuals_b',[]).append(weighted_mean_residual_b)
-	# results.setdefault('mean_residuals_b_squared',[]).append(weighted_mean_residual_b_squared)
-	# results.setdefault('min_residuals_b',[]).append(np.min(residuals_b[include]))
-	# results.setdefault('max_residuals_b',[]).append(np.max(residuals_b[include]))
-	# results.setdefault('num_residuals_b',[]).append(len(residuals_b[include]))
-	# # results.setdefault('median_residuals_b_radec',[]).append(median_4p_residual_radec)
-
-
-
-	# # median_residual_b = np.median(residuals_b[include])
-	# # median_residuals_b.append(median_residual_b)
-	# # median_residuals_b.append(median_4p_residual)
-	# # mean_residuals_b.append(weighted_mean_residual_b)
-	# # mean_residuals_b_squared.append(weighted_mean_residual_b_squared)
-	# # min_residuals_b.append(np.min(residuals_b[include]))
-	# # max_residuals_b.append(np.max(residuals_b[include]))
-	# # num_residuals_b.append(len(residuals_b[include]))
-	# # median_residuals_b_radec.append(median_4p_residual_radec)
-
-	# with open(config['output_dir'] + 'iteration_residuals.txt'.format(), 'w') as temp:
-	# 	for r, resid in enumerate(results['median_residuals_b']):
-	# 		# temp.write(str(resid) + '\n')
-	# 		temp.write(f"Min:{results['min_residuals_b'][r]:.5f}  Median:{results['median_residuals_b'][r]:.5f}  Max:{results['max_residuals_b'][r]:.5f}  Num:{results['num_residuals_b'][r]:.5f}  Weighted mean:{results['mean_residuals_b'][r]:.5f}  Weighted mean squared:{results['mean_residuals_b_squared'][r]:.5f} \n") #| Mean_a:{results['mean_residuals_r'][r]:.5f} Median_mas:{results['median_residuals_b_radec'][r]:.7f} 
-
-	# print('Median residual = {}'.format(median_4p_residual))
-	# # print('Median residual radec = {}'.format(median_4p_residual_radec))		
-	# print('Weighted mean residual = {}'.format(weighted_mean_residual_b))
-	# print('Weighted mean residual squared = {}'.format(weighted_mean_residual_b_squared))
-	# #removed break condition. Will complete all ref_iterations
-	# # if ref_iteration > 5:
-	# # 	# improvement = median_residuals_b[ref_iteration-1]-median_residuals_b[ref_iteration]
-	# # 	improvement = mean_residuals_b[ref_iteration-1]-mean_residuals_b[ref_iteration]
-	# # 	print('Improvement = {}'.format(improvement))
-	# # 	if ref_iteration > 5:
-	# # 		if 0 < improvement < 0.005:					#0.05 mas =  0.005 pixels    50 mas = 5 pixel. 0.05 mas = 0.005
-	# # 			print('Improvement < 0.05, breaking at ref_iteration {}'.format(ref_iteration))
-	# # 			break
-	# print('All ref_iteration median residuals_b = {}'.format(results['median_residuals_b']))
-	# print('All ref_iteration weighted mean residuals_b = {}'.format(results['mean_residuals_b']))
-	# print('All ref_iteration weighted mean residuals_b squared= {}'.format(results['mean_residuals_b_squared']))
-	# plt.close('all')
-	# quit()
 
 def load_osiris_file(starfind_Dir,filename):
 	#Loads a starlist file, converts it to a StarList object.
@@ -1464,53 +1218,53 @@ def load_osiris_file(starfind_Dir,filename):
 
 
 def reference_section_plots(refTable_b,refTable_current):
-	plt.figure(num=1,figsize=(6,6),clear=True)
-	ptsize = 5
-	os.makedirs('{}combined_ref'.format(plot_dir),exist_ok=True)
-	# xbound = np.logical_and(-4.99 < refTable_b['x0'],refTable_b['x0'] < -4.77)
-	# ybound = np.logical_and(8.17 < refTable_b['y0'],refTable_b['y0'] < 8.4)
-	# s = np.where(np.logical_and(xbound,ybound))[0]
-	star_id = '86483'
-	s = np.where(refTable_b['name'] == star_id)[0]
-	plt.scatter(refTable_b['x0'][s],refTable_b['y0'][s],ptsize,'k',label='Mean')
-	plt.scatter(refTable_a['x'][s],refTable_a['y'][s],ptsize,label='Individual frames')
-	# plt.scatter(refTable_a['x'][s][0][0],refTable_a['y'][s][0][0],ptsize,label='Hubble?')
+	pass
+	# plt.figure(num=1,figsize=(6,6),clear=True)
+	# ptsize = 5
+	# os.makedirs('{}combined_ref'.format(plot_dir),exist_ok=True)
+	# # xbound = np.logical_and(-4.99 < refTable_b['x0'],refTable_b['x0'] < -4.77)
+	# # ybound = np.logical_and(8.17 < refTable_b['y0'],refTable_b['y0'] < 8.4)
+	# # s = np.where(np.logical_and(xbound,ybound))[0]
+	# star_id = '86483'
+	# s = np.where(refTable_b['name'] == star_id)[0]
+	# plt.scatter(refTable_b['x0'][s],refTable_b['y0'][s],ptsize,'k',label='Mean')
+	# plt.scatter(refTable_a['x'][s],refTable_a['y'][s],ptsize,label='Individual frames')
+	# # plt.scatter(refTable_a['x'][s][0][0],refTable_a['y'][s][0][0],ptsize,label='Hubble?')
 	
-	s = np.where(refTable_current[night]['name'].astype('str') == star_id)[0]
-	plt.scatter(refTable_current[night]['x0'][s],refTable_current[night]['y0'][s],ptsize,label='Ref')
-	plt.xlim([-4.932,-4.88])
-	plt.ylim([8.18,8.242])
-	plt.title('Averaging star position it:{}'.format(ref_iteration))
-	plt.legend(loc='upper left')
-	plt.xlabel('Relative RA (arcsec)')
-	plt.ylabel('Relative Dec (arcsec)')
-	plt.savefig('{}combined_ref/new_reference_stars_{}.jpg'.format(plot_dir,ref_iteration), bbox_inches='tight',dpi=200)
-	# plt.show()
+	# s = np.where(refTable_current[night]['name'].astype('str') == star_id)[0]
+	# plt.scatter(refTable_current[night]['x0'][s],refTable_current[night]['y0'][s],ptsize,label='Ref')
+	# plt.xlim([-4.932,-4.88])
+	# plt.ylim([8.18,8.242])
+	# plt.title('Averaging star position it:{}'.format(ref_iteration))
+	# plt.legend(loc='upper left')
+	# plt.xlabel('Relative RA (arcsec)')
+	# plt.ylabel('Relative Dec (arcsec)')
+	# plt.savefig('{}combined_ref/new_reference_stars_{}.jpg'.format(plot_dir,ref_iteration), bbox_inches='tight',dpi=200)
+	# # plt.show()
 
-	print('{},{} matched stars in refTable_a'.format(len(idx1),len(idx2)))
-	#plot individual frame residuals
-	os.makedirs('{}residual_A/'.format(plot_dir,ref_iteration),exist_ok=True)
-	# for f in range(len(osiris_filenames)):
-	plt.figure(num=1,figsize=(6,6),clear=True)
-	# plt.clf()
-	quiv_scale=0.2
-	quiv_label_val = 0.01
-	quiv_label = '{} arcsec'.format(quiv_label_val)
-	# idx = np.where(frame[include] == f)[0]
-	# print(f'idx = {idx}')
-	# q = plt.quiver(xtf[include][idx],ytf[include][idx],(xref[include][idx]-xtf[include][idx]),(yref[include][idx]-ytf[include][idx]),np.arctan2(yref[include][idx]-ytf[include][idx], xref[include][idx]-xtf[include][idx]),norm=Normalize(vmin=-math.pi,vmax=math.pi),  cmap='hsv', scale=quiv_scale, angles='xy',width=0.005)
-	# q = plt.quiver(xtf[outliers],ytf[outliers],(xref[outliers]-xtf[outliers]),(yref[outliers]-ytf[outliers]), color='red', scale=quiv_scale, angles='xy',width=0.0005)
-	q = plt.quiver(refTable_b['x0'][idx1],refTable_b['y0'][idx1],(refTable_current[night]['x0'][idx2]-refTable_b['x0'][idx1]),(refTable_current[night]['y0'][idx2]-refTable_b['y0'][idx1]),np.arctan2(refTable_current[night]['y0'][idx2]-refTable_b['y0'][idx1], refTable_current[night]['x0'][idx2]-refTable_b['x0'][idx1]), norm=Normalize(vmin=-math.pi,vmax=math.pi), cmap='hsv', scale=quiv_scale, angles='xy',width=0.005)
-	plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label, coordinates='figure', labelpos='E', color='green')
-	plt.xlim(-20,20)
-	plt.ylim(-20,20)
-	plt.xlabel('relative RA (arcsec)')
-	plt.ylabel('relative Dec (arcsec)')
-	# plt.axis('equal')
-	# plt.set_aspect('equal','box')
-	plt.title('Distortion residuals_r it:{}'.format(ref_iteration))
-	plt.savefig('{}residual_A/residual_quiver_{}.jpg'.format(plot_dir,ref_iteration), bbox_inches='tight',dpi=200)
-
+	# print('{},{} matched stars in refTable_a'.format(len(idx1),len(idx2)))
+	# #plot individual frame residuals
+	# os.makedirs('{}residual_A/'.format(plot_dir,ref_iteration),exist_ok=True)
+	# # for f in range(len(osiris_filenames)):
+	# plt.figure(num=1,figsize=(6,6),clear=True)
+	# # plt.clf()
+	# quiv_scale=0.2
+	# quiv_label_val = 0.01
+	# quiv_label = '{} arcsec'.format(quiv_label_val)
+	# # idx = np.where(frame[include] == f)[0]
+	# # print(f'idx = {idx}')
+	# # q = plt.quiver(xtf[include][idx],ytf[include][idx],(xref[include][idx]-xtf[include][idx]),(yref[include][idx]-ytf[include][idx]),np.arctan2(yref[include][idx]-ytf[include][idx], xref[include][idx]-xtf[include][idx]),norm=Normalize(vmin=-math.pi,vmax=math.pi),  cmap='hsv', scale=quiv_scale, angles='xy',width=0.005)
+	# # q = plt.quiver(xtf[outliers],ytf[outliers],(xref[outliers]-xtf[outliers]),(yref[outliers]-ytf[outliers]), color='red', scale=quiv_scale, angles='xy',width=0.0005)
+	# q = plt.quiver(refTable_b['x0'][idx1],refTable_b['y0'][idx1],(refTable_current[night]['x0'][idx2]-refTable_b['x0'][idx1]),(refTable_current[night]['y0'][idx2]-refTable_b['y0'][idx1]),np.arctan2(refTable_current[night]['y0'][idx2]-refTable_b['y0'][idx1], refTable_current[night]['x0'][idx2]-refTable_b['x0'][idx1]), norm=Normalize(vmin=-math.pi,vmax=math.pi), cmap='hsv', scale=quiv_scale, angles='xy',width=0.005)
+	# plt.quiverkey(q, 0.5, 0.85, quiv_label_val, quiv_label, coordinates='figure', labelpos='E', color='green')
+	# plt.xlim(-20,20)
+	# plt.ylim(-20,20)
+	# plt.xlabel('relative RA (arcsec)')
+	# plt.ylabel('relative Dec (arcsec)')
+	# # plt.axis('equal')
+	# # plt.set_aspect('equal','box')
+	# plt.title('Distortion residuals_r it:{}'.format(ref_iteration))
+	# plt.savefig('{}residual_A/residual_quiver_{}.jpg'.format(plot_dir,ref_iteration), bbox_inches='tight',dpi=200)
 
 
 def get_PA(filename):
@@ -1525,15 +1279,15 @@ def calculate_PCU_guess(starlist_filename,night):
 		flip_filename = starlist_filename[:-10] + '.fits'
 		hdr = fits.getheader(config[night]['fits_dir']+flip_filename,ignore_missing_simple=True)
 		
-		if pcu_r_keyword not in hdr.keys:
+		if pcu_r_keyword not in hdr.keys():
 			log = ascii.read(config[night]['log_file'],format='basic')
 			raw_filename = flip_filename[:-10] + '.fits'
-			mask = log['Filename'] == raw_filename
-			pcu_params = log[mask]			
-			hdr[pcu_x_keyword] = pcu_params['x']
-			hdr[pcu_y_keyword] = pcu_params['y']
-			hdr[pcu_z_keyword] = pcu_params['z']
-			hdr[pcu_r_keyword] = pcu_params['r']
+			mask = log['Filename']==raw_filename
+			pcu_params = log[mask]
+			hdr[pcu_x_keyword] = pcu_params['x'].data[0]
+			hdr[pcu_y_keyword] = pcu_params['y'].data[0]
+			hdr[pcu_z_keyword] = pcu_params['z'].data[0]
+			hdr[pcu_r_keyword] = pcu_params['r'].data[0]
 
 		pcu_x = float(hdr[pcu_x_keyword])   
 		pcu_y = float(hdr[pcu_y_keyword])
@@ -1572,7 +1326,7 @@ def calculate_PCU_guess(starlist_filename,night):
 		# # pinhole_y_center = 613 #pixels  On raw image
 		# pinhole_y_center = 1422 #on flipped image
 		# a0 = S*(pcu_x - pinhole_x_offset) + pinhole_x_center  #in pixels
-		# b0 = S*(pinhole_y_offset - pcu_y) + pinhole_y_center #flip applied to image, so using negative pix coordinates
+		# b0 = -S*(pcu_y - pinhole_y_offset) + pinhole_y_center #flip applied to image, so using negative pix coordinates
 
 		# #--------- pcu reference converted from mm to arcseconds, transformation from arcseconds to pixels--------------
 		# S = 1/0.0099576 #pixels per arcsecond  This is used because the pinhole positions are converted to arcseconds before being passed to Flystar.
@@ -1606,10 +1360,9 @@ def calculate_PCU_guess(starlist_filename,night):
 		# pinhole_y_center = 1422 #on flipped image
 		pinhole_x_center = 1676 #pixels.  The location of the center of the pinohole mask in pixels when the PCU is at the offset position above.
 		pinhole_y_center = 1422 #on flipped image
-		a0 = -S*pinhole_x_center + front_focus_scale*(pcu_x - pinhole_x_offset) #in arcseconds
-		b0 = -S*pinhole_y_center + -front_focus_scale*(pcu_y - pinhole_y_offset)
-		print('a0,b0',a0,b0)
-
+		a0 = -(S*pinhole_x_center + front_focus_scale*(pcu_x - pinhole_x_offset)) #in arcseconds
+		b0 = -(S*pinhole_y_center + -front_focus_scale*(pcu_y - pinhole_y_offset)) #negative of inverse transformation (after scaling to arcsec)
+		print('a0,b0',a0,b0)  #
 
 		four_p = Empty()
 		four_p.__class__ = transforms.four_paramNW   #I am trying to create an instance of the class without calling __init__, which requires two lists of stars to be passed in.
@@ -1623,6 +1376,7 @@ def calculate_PCU_guess(starlist_filename,night):
 	return [four_p]
 
 class Empty(object):
+	#This exists so that we can create a transforms.four_paramNW object without passing it a list of star positions.
 	pass
 
 
@@ -1682,7 +1436,7 @@ def trim_gaia(refTable,filename,PA):
 
 	# wrong sometimes. 24, 27, Position angle
 
-def plot_quiver(x,y,xref,yref,fitsfile,plot_directory,used,night,fp_iteration):
+def plot_quiver(x,y,xref,yref,fitsfile,plot_directory,used,night,fp_iteration,ref_iteration):
 	os.makedirs(plot_directory, exist_ok=True)		
 	quiv_scale=100
 	margin = 100
@@ -1699,12 +1453,12 @@ def plot_quiver(x,y,xref,yref,fitsfile,plot_directory,used,night,fp_iteration):
 	# plt.set_aspect('equal','box')
 	plt.title('Individual star distortions, Observed -> Reference')
 	# plt.savefig(plot_directory + fitsfile[:-5] + '_quiver.jpg', bbox_inches='tight')
-	plt.savefig('{}{}_quiver_{}.jpg'.format(plot_directory,fitsfile[:-5],fp_iteration), bbox_inches='tight')
+	plt.savefig('{}{}_quiver_r{}_f{}.jpg'.format(plot_directory,fitsfile[:-5],ref_iteration,fp_iteration), bbox_inches='tight',dpi=200)
 
 	# plt.show()
 	# plt.close()
 
-def plot_scatter(x,y,fitsfile,plot_directory,night,fp_iteration):
+def plot_scatter(x,y,fitsfile,plot_directory,night,fp_iteration,ref_iteration):
 	os.makedirs(plot_directory, exist_ok=True)		
 	# fitsfile = cleanDir + filename[:-12] + '.fits'
 	img = fits.getdata(config[night]['fits_dir']+fitsfile)
@@ -1723,9 +1477,9 @@ def plot_scatter(x,y,fitsfile,plot_directory,night,fp_iteration):
 	plt.title('Observed stars')
 	plt.legend(loc='upper right')
 	# plt.savefig(plot_directory + fitsfile[:-5] + '_scatter.pdf', bbox_inches='tight')
-	plt.savefig('{}{}_scatter_{}.jpg'.format(plot_directory,fitsfile[:-5],fp_iteration), bbox_inches='tight')
+	plt.savefig('{}{}_scatter_r{}_f{}.jpg'.format(plot_directory,fitsfile[:-5],ref_iteration,fp_iteration),bbox_inches='tight',dpi=200)
 
-def plot_matched(x,y,xref,yref,fitsfile,plot_directory,used,night,fp_iteration):
+def plot_matched(x,y,xref,yref,fitsfile,plot_directory,used,night,fp_iteration,ref_iteration):
 	os.makedirs(plot_directory, exist_ok=True)		
 	# fitsfile = cleanDir + filename[:-12] + '.fits'
 	img = fits.getdata(config[night]['fits_dir']+fitsfile)
@@ -1746,13 +1500,23 @@ def plot_matched(x,y,xref,yref,fitsfile,plot_directory,used,night,fp_iteration):
 	plt.title('Matched stars')
 	plt.legend(loc='upper right')
 	# plt.savefig(plot_directory + fitsfile[:-5] + '_matched.pdf', bbox_inches='tight')
-	plt.savefig('{}{}_matched_{}.jpg'.format(plot_directory,fitsfile[:-5],fp_iteration), bbox_inches='tight')
+	plt.savefig('{}{}_matched_r{}_f{}.jpg'.format(plot_directory,fitsfile[:-5],ref_iteration,fp_iteration), bbox_inches='tight',dpi=200)
 
 
 def distortion_from_coefficients(filename):
 	#reads a file with a list of coefficients, generates a transformation object
-
-	return transformation
+	if os.path.exists(filename):
+		coefficients = ascii.read(filename,format='fixed_width')
+		px = coefficients['px_val']
+		py = coefficients['py_val']
+		order = int(np.sqrt(len(px))-1)
+		x_domain = [0,frame_size[0]] #I am not sure if this is the correct domain. Could be [0,1]? It doesn't actually get used anywhere, so fine for now.
+		y_domain = [0,frame_size[1]]
+		tform = transforms.LegTransform(order, px, py, x_domain, y_domain, astropy_order=True)
+	else:
+		print('Previous distortion model not found: {} '.format(filename))
+		tform = None
+	return tform
 
 
 
@@ -1771,9 +1535,10 @@ def load_observed_lists():
 
 
 
+#--------------------------------
 main()
-
-
+sys.exit(0)
+#--------------------------------
 
 
 

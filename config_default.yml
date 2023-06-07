@@ -1,11 +1,13 @@
-nights       : ['n1']
+nights       : ['n1']                        #Must match at least one of the sections below
 instrument   : 'OSIRIS'
-output_dir      : '/u/mfreeman/work/PCU/script_testing/distortion_testing/outputs1/'
+output_dir      : '/u/mfreeman/work/PCU/script_testing/distortion_testing/outputs5/'
 legendre_order : 5
-generate_new_fp : True
-generate_reference_frame : False
+generate_new_fp : True                        #If true, will always recalculate the 4-parameter matching. If False, will attempt to load the previous one.
+generate_reference_frame : True               #If true, will always iteratively generate a new reference frame from the observations. If false, will attempt to load the previous one.   
 fp_iterations  : 4
-ref_iterations : 8
+ref_iterations : 0
+previous_distortion_dir : '/u/mfreeman/work/PCU/script_testing/distortion_testing/outputs3/'
+previous_distortion_model : 'distortion_coefficients_r0_f3.txt'  #filename for the distortion coefficients. Must also have a file appended with 'inverse_' for the inverse transformation.
 centred         : True
 use_flystar_velocity  : False
 manually_average_star_positions : True
@@ -18,17 +20,15 @@ n1:
   starlist_dir    : '/u/mfreeman/work/PCU/script_testing/day3/raw/'      #location of the starlists
   fits_dir        : '/u/mfreeman/work/PCU/script_testing/day3/raw/'      #location of the .fits files (or _flip.fits for OSIRIS)
   bad_files       : []
-  tform_dir       : '/u/mfreeman/work/PCU/script_testing/day3/tforms1/'  #4-parameter transformation guesses will be loaded from and saved to here.
+  tform_dir       : '/u/mfreeman/work/PCU/script_testing/day3/tforms5/'  #4-parameter transformation guesses will be saved to here, and loaded from here on subsequent runs.
   mag_limits      : [-5,16]      #stars outside this magnitude range are discarded. Also passed as limits to mosaic_to_ref()
   mag_tolerance   : [3, 3, 3]
-  # targetID        : 1745948323734090368   #gaia ID of target star. Ra and Dec used in prepare_gaia_for_flystar()
   target_RA        : 0         #RA of target. Reference coordinates are given in relative RA to this position.  
   target_DEC       : 0
   # radius        : 20   #arcseconds
   single_fit      : True  #run Mosaic2Ref for each image individually. Only works for true, delete?
-  rad_tolerance   : [0.6, 0.5, 0.4]
-  dont_trim       : [] #can probably delete this.
-  slice           : [0,1]   #null
+  rad_tolerance   : [0.4, 0.3, 0.2]   #in the units of the reference frame, probably arcseconds.
+  slice           : [0,null]   #eg [0,null] or [0,1]
 n2:
   target          : 'M92'
   nightDir        : '/u/mfreeman/work/d/n2/'

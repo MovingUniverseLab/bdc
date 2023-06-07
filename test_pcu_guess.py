@@ -10,8 +10,10 @@ from matplotlib.colors import LogNorm, Normalize
 import math
 import sys
 
-fitsfiles = ['i230413_a003{0:03d}_flip.fits'.format(ii) for ii in range(3, 3+1)]
-# fitsfiles = ['i230413_a003{0:03d}_flip.fits'.format(ii) for ii in range(3, 29+1)]
+
+# fitsfiles = ['i230413_a003{0:03d}_flip.fits'.format(ii) for ii in range(3, 3+1)]
+fitsfiles = ['i230413_a003{0:03d}_flip.fits'.format(ii) for ii in range(3, 29+1)]
+# fitsfiles = ['i230413_a003005_flip.fits','i230413_a003014_flip.fits','i230413_a003023_flip.fits']
 
 # fitsfiles = ['i230405_a006002_flip.fits']
 
@@ -35,7 +37,7 @@ def main():
 		transformed_ref[:,0], transformed_ref[:,1] = four_p.evaluate(ref_list['x'],ref_list['y'])
 		# transformed_ref = four_p.evaluate(ref_list['x'],ref_list['y'])
 		# print(transformed_ref)
-		plt.figure(1,figsize=(8,8))
+		plt.figure(1,figsize=(8,8),clear=True)
 		img = fits.getdata(raw_dir+fitsfile)
 		img[np.where(img<1)] = 1
 		# plt.close('all')
@@ -44,9 +46,11 @@ def main():
 		norm = LogNorm(vmin, vmax)
 		plt.imshow(img, cmap='Greys_r', norm=norm, origin = "lower", )
 		plt.scatter(transformed_ref[:,0],transformed_ref[:,1],c='r',marker='.',edgecolors=None)
+		plt.title(fitsfile)
 		# plt.xlim([512,1536])
 		# plt.ylim([512,1536])
-		plt.show()
+		plt.savefig('./test_guesses/{}.jpg'.format(fitsfile), bbox_inches='tight',dpi=200)
+		# plt.show()
 
 def calculate_PCU_guess(filename,instrument='OSIRIS'):
 	if instrument == 'OSIRIS':
@@ -95,7 +99,7 @@ def calculate_PCU_guess(filename,instrument='OSIRIS'):
 		pinhole_y_center = 1422 #on flipped image
 
 		a0 = S*(pcu_x - pinhole_x_offset) + pinhole_x_center  #in pixels
-		b0 = S*(pinhole_y_offset - pcu_y) + pinhole_y_center #flip applied to image, so using negative pix coordinates
+		b0 = -S*(pcu_y - pinhole_y_offset) + pinhole_y_center #flip applied to image, so using negative pix coordinates
 
 		four_p = Empty()
 		four_p.__class__ = transforms.four_paramNW   #I am trying to create an instance of the class without calling __init__, which requires two lists of stars to be passed in.
