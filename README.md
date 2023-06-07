@@ -4,8 +4,11 @@
 This package calculates geometric optical distortion, by comparing observations to some reference frame, usually the PCU
 
 This script is step 3 of 3.
+
 Step 1) Take PCU observations with take_distortion_obs.py
+
 Step 2) Extract starlist from these images with KAI
+
 Step 3) Run bdc to generate a distortion solution from the starlists.
 
 
@@ -67,8 +70,8 @@ Number of times to repeat the combined reference frame generation.
 #### previous_distortion_dir : '/u/mfreeman/work/PCU/script_testing/distortion_testing/outputs3/'
 The location of the previous distortion model for the instrument.
 
-#### previous_distortion_model : 'distortion_coefficients_r0_f3.txt'  #filename for the distortion coefficients. Must also have a file appended with 'inverse_' for the inverse transformation.
-The file containing the previous distortion model for the instrument, as a list of legendre polynomial coefficients. There must also be an inverse model with 'inverse\_' prepended to the same filename.
+#### previous_distortion_model : 'distortion_coefficients_r0_f3.txt'
+The file containing the previous distortion model for the instrument, as a list of legendre polynomial coefficients (like the output files). There must also be an inverse model with 'inverse\_' prepended to the same filename.
 
 #### centred : True 		
 If True, will add a translation to the final result to set the distortion at the centre of the frame to be zero. (This is an extra term, the Legendre polynomial is not changed) 
