@@ -14,62 +14,13 @@ Initial transformation guesses: Very important for using the PCU. Maybe also imp
 
 Create stacks: Combine images with the same PA into stacks with error measurements. Might need some intelligence here to pick the correct stacks.
 
-Maybe include functions for f_tests etc to compare.
 
-command looks like: 
+Run with: 
 
 python bdc_main.py -c config1.yml
 
 
-To Do list:
 
-Record residuals and other info. Save to text file? Or just print out at end.
-Maybe make a dictionary of saved parameters?
-I want the residual from each match I think.
-Each combo of reference iteration and fourP iteration. I think I alreay saved these in a file.
-Results dictionary with lists: four_p iteration, reference iteration, mean residual, weighted mean residual. Maybe I only need the residuals?
-Maybe include number of matched stars too. Average distortion size. and standard deviation. Standard deviation of residuals.
-Append all of these to lists.
-
-
-Loading previous transformaiton guesses.
-Need a proper system to do this. Should probably be a separate function?
-For the PCU, just use the header params to calculate a guess each time. Should be good enough.
-For a reference like Hubble, it is more complicated. Need to create a folder where the guesses can be stored.
-And a clear naming convention so that files can be renamed. 
-Also must work with no guess. Because the first pass through will not have any guesses
-This happens again for the matched referenc frame. Although, I could possibly just use all the individual transformations?
-This may not work, so save a list of transformations too.
-
-
-Plots
-Can really trim down. Only need ... some? Check the ones I used in my paper.
-Difference vectors
-Distortion model vectors
-residuals.
-Plate scale and rotations.
-
-
-prepare_hubble_for_flystar needs to be flexible. Maybe rename everything?
-
-I pass the globular cluster name in. This should be changed. I use it for the RA and Dec, then use 
-The Hubble reference list has its RA and Dec transformed to be relative to the COO star. So I was getting the ra and Dec of the coo star.
-I have the Ra and Dec of the coo star from GAIA, and the centre of the whole cluster from another paper.
-I convert them relative to the centre of the cluster, using pixels relative to Coo star, and Coo star RA and Dec relative to cluster centre.
-Plus a manual correction.
-Solution ... 
-This is a function in flystar because we want everything in coordinates relative to the target. That is not really necessary here. 
-But we probably should still follow the convention.
-I really need to look at that function, is it actually correct? I guess the reference is arbitrary, so it works either way.
-The Hubble list x_0 is in the rectified Cartesian system wrt to the adopted center [arcsec]. So I think it is correct.
-So that's why I don't need to change anything. I could probably just leave hubble as it is.
-That will be inconsistent with my previous runs.
-New plan:
-Don't need to pass in Ra, Dec, or Target name. prepare_ref_for_flystar() doesn't need to translate hubble.
-need prepare_PCU_for_flystar, which does something similar.
-or just make the PCU list in the correct format anyway? It won't be in RA and Dec, and trying to convert it may be incorrect.
-Do I need to make up the columns too? Magnitudes are a bit meaningless.
-Maybe I could point to prepare_gaia for future changes.
 
 """
 import argparse
@@ -731,10 +682,8 @@ def mahalanobis(dx,dy):
 	return D
 
 
-
-
-
-def fetch_reference(night):				#loads hubble data from hst1pass
+def fetch_reference(night):				
+	#loads hubble data from hst1pass
 	# filelist = os.listdir(nightDir)
 	# hst1pass_file = fnmatch.filter(filelist,'i*.xymrduvqpk')[0]
 	print('Loading', config[night]['reference_file'])
@@ -763,7 +712,11 @@ def prepare_ref_for_flystar(ref, ra, dec, target, instrument, targets_dict=None,
 	Convert everything into arcseconds and name columns such that they are 
 	ready for FlyStar input.
 	"""
-
+	# Don't need to pass in Ra, Dec, or Target name. prepare_ref_for_flystar() doesn't need to translate hubble.
+	# need prepare_PCU_for_flystar, which does something similar.
+	# or just make the PCU list in the correct format anyway? It won't be in RA and Dec, and trying to convert it may be incorrect.
+	# Do I need to make up the columns too? Magnitudes are a bit meaningless.
+	# Maybe I could point to prepare_gaia for future changes.
 
 	# Master frame in UVIS pixel scale (40 mas/pix). 
 	# Cluster's center (from Goldsbury et al. 2010, AJ, 140, 1830, as updated 

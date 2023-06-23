@@ -30,7 +30,7 @@ from kai.reduce import util
 from kai.reduce import dar
 from kai.reduce import kai_util
 from kai import instruments
-
+from kai.reduce import analysis
 
 ##########
 # Change the epoch, instrument, and distortion solution.
@@ -86,12 +86,13 @@ def go_calib():
 # 
     # Flats - created in subdir flats
     #Kp filter
-    offFiles = ['i230406_a001{0:03d}_flip'.format(ii) for ii in range(2, 2+1, 1)]
+    # offFiles = ['i230406_a001{0:03d}_flip'.format(ii) for ii in range(2, 2+1, 1)]
     onFiles  = ['i230406_a004{0:03d}_flip'.format(ii) for ii in range(2, 2+1, 1)]
-    calib.makeflat(onFiles, offFiles, 'flat_kp_tdOpen.fits', raw_dir=None, instrument=osiris)
+    offFiles = range(0,0)
+    calib.makeflat(onFiles, offFiles, 'flat_Hbb.fits', raw_dir=None, instrument=osiris) #Actually Kp, but need the same for testing.
 
     # Masks (assumes files were created under calib/darks/ and calib/flats/)
-    calib.makemask('dark_60s_1ca_1rd.fits', 'flat_kp_tdOpen.fits', 'supermask.fits', instrument=osiris)
+    calib.makemask('dark_60s_1ca_1rd.fits', 'flat_Hbb.fits', 'supermask.fits', instrument=osiris)
 
 def go():
     """
@@ -112,7 +113,7 @@ def go():
 
     name = 'pcu' #Used for directory name
 
-    sci_files = ['i230413_a003{0:03d}_flip.fits'.format(ii) for ii in range(3, 29+1)]   
+    sci_files = ['i230413_a003{0:03d}_flip'.format(ii) for ii in range(3, 29+1)]   
     # print(measurement_files)
     bad_files = ['i230406_a#####.fits']
     sci_files = [i for i in sci_files if i not in bad_files]
@@ -127,12 +128,90 @@ def go():
     # sky.makesky(sky_files, name, 'kp_tdhBand', instrument=osiris)
     sky.makesky_fromsci(sky_files, name, 'Hbb', instrument=osiris)
     data.clean(sci_files, name, 'Hbb', refSrc, refSrc, field=name, instrument=osiris, cent_box=50,ref_offset_method='pcu',check_ref_loc=False,fixDAR=False)
-    data.calcStrehl(sci_files, 'Hbb', field=name, instrument=osiris)
+    # data.calcStrehl(sci_files, 'Hbb', field=name, instrument=osiris)
+    #Currently refSrc is the centre of the pinohole mask, which may be off the frame. So calcStrehl doesn't work because we are passing the same coordinates.
+    #Using a different point raises another problem - the coo shift is a translation, which only works when strSrc is the same as refSrc, or there is no rotation. And we expect rotation here.
+
     # data.combine(sci_files, 'kn3_tdhBand', epoch, field=name, trim=0, weight='strehl', submaps=3, instrument=osiris)
     # os.chdir('../')
 
+class pcu_analysis(analysis.Analysis):
+    def __init__(self, epoch, filt, rootDir='/u/mfreeman/work/d/',
+                 epochDirSuffix=None, imgSuffix=None, cleanList='c.lis', alignMagCut=' -m 20 ',
+                 instrument=instruments.default_inst):
+        """
+        For OB170095 reduction:
+
+        epoch -- '11may' for example
+        filt -- 'kp', 'lp', or 'h'
+        """
+        # Initialize the Analysis object
+        analysis.Analysis.__init__(self, epoch, filt=filt,
+                                     rootDir=rootDir,
+                                     epochDirSuffix=epochDirSuffix, imgSuffix=imgSuffix,
+                                     cleanList=cleanList, instrument=instrument, airopa_mode='single')
+
+        # Use the field to set the psf starlist
+        # self.starlist = self.rootDir + 'n1/s1_psf.list'
+        self.starlist = self.rootDir + 'n5/Hub_psf_n5.list'
+
+        # Set up some extra starfinder keywords to optimize PSF handling.
+        self.stf_extra_args = ', psfSize=2.0, trimfake=0' # 2 arcsec
+        self.corrMain = 0.7
+        self.corrSub = 0.5
+        self.corrClean = 0.8
+
+        ##########
+        # Setup the appropriate calibration stuff.
+        ##########
+        self.mapFilter2Cal = {'kp': 'K', 'h': 'H', 'j': 'J', 'kn3_tdOpen': 'kn3', 'kp_tdOpen':'K', 'kn3_tdhBand': 'kn3'}
+        
+        # Use the default stars
+        self.calStars = None
+
+        # Choose the column based on the filter
+        self.calColumn = self.mapFilter2Cal[filt]
+
+        # Set the coo star
+        self.cooStar = 's1'
+        self.calCooStar = self.cooStar
+
+        # Override some of the default parameters
+        self.calFlags = '-f 1 -R -s 1 --searchMag=2.0 '
+        self.calFile = self.rootDir + 's1_photo.dat'
+
+        self.labellist = self.rootDir + 's1_label.dat'
+        self.orbitlist = None
+
+        # Fix align flags. Otherwise, align is using too many faint stars.
+        self.alignFlags = '-R 3 -v -p -a 2 ' + alignMagCut
+
+        self.plotPosMagCut = 20.0
+
+        self.stfFlags = 'makePsf=1, makeRes=1, makeStars=1, fixPsf=1, trimfake=1, '
+
+        return
+
+def analyze_pcu():
+    epoch = '/u/mfreeman/work/PCU/script_testing/day3/'  #the directory containing /clean, /raw, /reduce etc.
+    print('osiris.name = ', osiris.name)
+    temp = pcu_analysis(epoch, 'Hbb', instrument=osiris)
+    print('temp.instrument.name = ', temp.instrument.name)
+    temp.cleanFiles = ['ci211024_a019002_flip', 'ci211024_a019003_flip', 'ci211024_a019004_flip', 'ci211024_a019005_flip', 
+                    'ci211024_a019006_flip', 'ci211024_a019007_flip', 'ci211024_a019008_flip', 'ci211024_a019009_flip', 
+                    'ci211024_a019010_flip', 'ci211024_a019011_flip', 'ci211024_a019012_flip', 'ci211024_a019013_flip',    
+                    ] # star s1 is off the edge of 019, so using a different coo star s2
+    temp.cooStar = 's2' 
+    temp.calCooStar = temp.cooStar
+    temp.calFile = temp.rootDir + 's2_photo.dat'
+    temp.labellist = temp.rootDir + 's2_label.dat'
+    temp.starfinderCleanLoop()
+    # temp.starfinderClean()
+    return
 
 makelog_and_prep_images()
 go_calib()
 go()
+
+analyze_pcu()
 
