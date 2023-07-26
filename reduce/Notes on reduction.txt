@@ -1,10 +1,19 @@
 #Notes on reduction.txt
 
+Modify the templates reduce_template.pu and analysis_template.py to create reduce.py and analysis.py
+Rund reduce.py
+Run analysis.py
 
-The data reduction steps are copied from KAI and IMAKA.
 
 
-1) Modfy the scripts to point to the correct directories #expand on this.
-	The usual format is to have directories /raw and /reduce, and run the reduction scrips from inside the /reduce directory.
-1) Run mk_drk_flt_msk.py, which flips the OSIRIS images, and uses the flat and dark images to generate a mask, dark, and flat.
-2) run reduce_pcu_data.py, which uses DAOstarfinder to find stars in the flipped images
+
+
+
+
+
+
+#The data reduction steps are copied from KAI and IMAKA.
+#1) Modfy the scripts to point to the correct directories #expand on this.
+#	The usual format is to have directories /raw and /reduce, and run the reduction scrips from inside the /reduce directory.
+#1) Run mk_drk_flt_msk.py, which flips the OSIRIS images, and uses the flat and dark images to generate a mask, dark, and flat.
+#2) run reduce_pcu_data.py, which uses DAOstarfinder to find stars in the flipped images

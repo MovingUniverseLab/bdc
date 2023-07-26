@@ -18,6 +18,9 @@ grid_radius = grid_diameter/2
 
 #  88 pinholes across
 
+clear_diameter = 42.7 #mm   #if we add a ThorLabs stress-free retaining ring, this is the clear aperture
+clear_radius = clear_diameter/2
+
 def main():
 
 	grid_steps = np.arange(grid_spacing/2,grid_radius,grid_spacing)
@@ -26,6 +29,8 @@ def main():
 	x_array = []
 	y_array = []
 	id_array = []
+	cut_x_array = []
+	cut_y_array = []
 	counter=1
 	points_to_remove = [[3.25, 21.75], [-3.25, 21.75], [3.25, -21.75], [-3.25, -21.75],
 						[21.75, 3.25], [-21.75, 3.25], [21.75, -3.25], [-21.75, -3.25],
@@ -45,6 +50,9 @@ def main():
 				y_array.append(y)
 				id_array.append(counter)
 				counter +=1
+				if np.hypot(x,y)>=clear_radius:
+					cut_x_array.append(x)
+					cut_y_array.append(y)
 	print(grid_steps)
 
 	id_array = np.arange(1,len(x_array)+1)
@@ -65,15 +73,26 @@ def main():
 	# plt.show()
 
 
+	x_array_2 = np.asarray(x_array)*45 + 1250
+	y_array_2 = np.asarray(y_array)*45 + 1240
 
-	x_array = np.asarray(x_array)*45 + 1250
-	y_array = np.asarray(y_array)*45 + 1240
+	# cut_x_array = np.asarray(cut_x_array)*45 + 1250
+	# cut_y_array = np.asarray(cut_y_array)*45 + 1240	
 
 	plt.figure(figsize=(6,6))
 	img = mpimg.imread('Screenshot 2023-04-25 at 3.34.00 PM.png')
 	plt.imshow(img)
-	plt.scatter(x_array,y_array,s=10,c='r',marker='o')
+	plt.scatter(x_array_2,y_array_2,s=10,c='g',marker='o')
 	plt.axis('equal')
+
+
+	fig, ax = plt.subplots(figsize=(6,6))
+	ax.scatter(x_array,y_array,s=10,c='g',marker='o')
+	ax.scatter(cut_x_array,cut_y_array,s=10,c='r',marker='o')
+	cir = plt.Circle((0,0),clear_radius,color='r',fill=False)
+	ax.add_patch(cir)
+	plt.axis('equal')
+
 	plt.show()
 
 main()
